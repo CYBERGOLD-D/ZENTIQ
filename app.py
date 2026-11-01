@@ -14,28 +14,46 @@ st.set_page_config(
 )
 
 # --------------------------------------------------
-# 2. LOAD SAVED MODEL COMPONENTS
+# 2. PROJECT AND MODEL PATH CONFIGURATION
 # --------------------------------------------------
 
-dataset_dir = Path(
-    r"C:\Users\everm\Documents_Local\ZENTIQ\datasets"
-)
+PROJECT_DIR = Path(__file__).resolve().parent
+MODEL_DIR = PROJECT_DIR / "models"
 
-processed_dir = dataset_dir / "processed"
+
+# --------------------------------------------------
+# 3. LOAD SAVED MODEL COMPONENTS
+# --------------------------------------------------
 
 @st.cache_resource
 def load_components():
 
-    vectorizer = joblib.load(
-        processed_dir / "zentIQ_tfidf_vectorizer.pkl"
-    )
+    vectorizer_path = MODEL_DIR / "zentIQ_tfidf_vectorizer.pkl"
+    model_path = MODEL_DIR / "zentIQ_logistic_regression_model.pkl"
+    mapping_path = MODEL_DIR / "zentIQ_intent_response_mapping.json"
 
-    model = joblib.load(
-        processed_dir / "zentIQ_logistic_regression_model.pkl"
-    )
+    # Verify that all required model files exist
+    required_files = [
+        vectorizer_path,
+        model_path,
+        mapping_path
+    ]
 
+    for file_path in required_files:
+        if not file_path.is_file():
+            raise FileNotFoundError(
+                f"Required model file not found: {file_path}"
+            )
+
+    # Load TF-IDF vectorizer
+    vectorizer = joblib.load(vectorizer_path)
+
+    # Load Logistic Regression model
+    model = joblib.load(model_path)
+
+    # Load intent-response mapping
     with open(
-        processed_dir / "zentIQ_intent_response_mapping.json",
+        mapping_path,
         "r",
         encoding="utf-8"
     ) as file:
@@ -44,15 +62,17 @@ def load_components():
     return vectorizer, model, response_mapping
 
 
+# Load chatbot components
 try:
     vectorizer, model, response_mapping = load_components()
+
 except Exception as error:
     st.error(f"Unable to load chatbot components: {error}")
     st.stop()
 
 
 # --------------------------------------------------
-# 3. PREDICTION FUNCTION
+# 4. PREDICTION FUNCTION
 # --------------------------------------------------
 
 def predict_customer_query(question):
@@ -73,7 +93,7 @@ def predict_customer_query(question):
 
 
 # --------------------------------------------------
-# 4. APPLICATION HEADER
+# 5. APPLICATION HEADER
 # --------------------------------------------------
 
 st.title("🛍️ Nigerian Retail Support")
@@ -87,8 +107,9 @@ st.write(
 
 st.divider()
 
+
 # --------------------------------------------------
-# 5. SIDEBAR
+# 6. SIDEBAR
 # --------------------------------------------------
 
 with st.sidebar:
@@ -134,7 +155,7 @@ with st.sidebar:
 
 
 # --------------------------------------------------
-# 6. CHAT HISTORY
+# 7. CHAT HISTORY
 # --------------------------------------------------
 
 if "messages" not in st.session_state:
@@ -149,6 +170,7 @@ for message in st.session_state.messages:
 
         if message["role"] == "assistant":
             if "intent" in message:
+
                 st.caption(
                     f"Predicted Intent: {message['intent']}"
                 )
@@ -160,7 +182,7 @@ for message in st.session_state.messages:
 
 
 # --------------------------------------------------
-# 7. CUSTOMER INPUT AND CHATBOT RESPONSE
+# 8. CUSTOMER INPUT AND CHATBOT RESPONSE
 # --------------------------------------------------
 
 customer_question = st.chat_input(
@@ -187,7 +209,9 @@ if customer_question:
 
         st.markdown(response)
 
-        st.caption(f"Predicted Intent: {predicted_intent}")
+        st.caption(
+            f"Predicted Intent: {predicted_intent}"
+        )
 
         st.caption(
             f"Prediction Confidence: {confidence:.2f}%"
@@ -202,7 +226,7 @@ if customer_question:
 
 
 # --------------------------------------------------
-# 8. FOOTER
+# 9. FOOTER
 # --------------------------------------------------
 
 st.divider()
