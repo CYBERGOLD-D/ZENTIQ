@@ -211,3 +211,9 @@ Development Language: Python
 ---
 
 ZENTIQ – Making Retail Support Smarter, Simpler and More Accessible.
+
+## Live Application
+
+Try ZENTIQ Nigerian Retail Support here:
+
+[Launch ZENTIQ Chatbot](https://6wm3xmhxvsyxeumf3rkapp9.streamlit.app/)
