@@ -126,7 +126,7 @@ Note: ZENTIQ currently uses an intent-classification model with predefined respo
 
 Step 1: Clone the Repository
 
-git clone https://github.com/YOUR-USERNAME/zentIQ-nigerian-retail-support.git
+git clone https://github.com/CYBERGOLD-D/ZENTIQ/commits?author=CYBERGOLD-D
 
 Step 2: Navigate to the Project Folder
 
