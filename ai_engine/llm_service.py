@@ -1,24 +1,36 @@
-"""
-ZENTIQ - LLM Service
 
-Coordinates requests and responses between ZENTIQ
-and locally hosted language models.
+"""
+ZENTIQ - Hybrid LLM Service
+
+Coordinates AI requests between Groq and Ollama.
+Groq is the primary provider.
+Ollama is the automatic fallback provider.
 """
 
-from ai_engine.ollama_client import OllamaClient
 from ai_engine.model_manager import ModelManager
 from ai_engine.prompt_templates import PromptTemplates
 
 
 class LLMService:
 
-    def __init__(self, client=None, model_manager=None):
+    def __init__(
+        self,
+        client=None,
+        model_manager=None,
+        groq_client=None,
+        ollama_client=None
+    ):
+        # Preserve compatibility with the previous client argument.
+        if client is not None and ollama_client is None:
+            ollama_client = client
 
-        self.client = client or OllamaClient()
-
-        self.model_manager = (
-            model_manager or ModelManager(self.client)
+        self.model_manager = model_manager or ModelManager(
+            groq_client=groq_client,
+            ollama_client=ollama_client
         )
+
+        self.groq_client = self.model_manager.groq_client
+        self.ollama_client = self.model_manager.ollama_client
 
         self.prompt_templates = PromptTemplates()
 
@@ -47,24 +59,81 @@ class LLMService:
         temperature=0.3,
         template_name="general"
     ):
-        """Generate a response using the selected language model."""
+        """Generate a response with automatic provider fallback."""
 
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Prompt cannot be empty.")
 
-        # Retrieve the appropriate system instructions
         if system_prompt is None:
             system_prompt = self.get_system_prompt(template_name)
 
-        # Select the appropriate language model
-        model = self.model_manager.select_model(task)
+        # Select the primary available provider.
+        provider = self.model_manager.select_provider()
 
-        # Generate the AI response
-        response = self.client.generate(
-            prompt=prompt,
-            model=model,
-            system_prompt=system_prompt,
-            temperature=temperature
+        if provider == "groq":
+            model = self.model_manager.select_model(
+                task=task,
+                provider="groq"
+            )
+
+            try:
+                response = self.groq_client.generate(
+                    prompt=prompt,
+                    model=model,
+                    system_prompt=system_prompt,
+                    temperature=temperature
+                )
+
+                return response
+
+            except Exception as groq_error:
+                # Automatically try Ollama if Groq fails.
+                if self.ollama_client.check_connection():
+
+                    try:
+                        fallback_model = (
+                            self.model_manager.select_model(
+                                task=task,
+                                provider="ollama"
+                            )
+                        )
+
+                        response = self.ollama_client.generate(
+                            prompt=prompt,
+                            model=fallback_model,
+                            system_prompt=system_prompt,
+                            temperature=temperature
+                        )
+
+                        return response
+
+                    except Exception as ollama_error:
+                        raise ConnectionError(
+                            "Both Groq and Ollama failed. "
+                            f"Groq error: {groq_error}. "
+                            f"Ollama error: {ollama_error}"
+                        ) from ollama_error
+
+                raise ConnectionError(
+                    "Groq failed and Ollama is unavailable. "
+                    f"Groq error: {groq_error}"
+                ) from groq_error
+
+        # Use Ollama when Groq is unavailable.
+        if provider == "ollama":
+
+            model = self.model_manager.select_model(
+                task=task,
+                provider="ollama"
+            )
+
+            return self.ollama_client.generate(
+                prompt=prompt,
+                model=model,
+                system_prompt=system_prompt,
+                temperature=temperature
+            )
+
+        raise ConnectionError(
+            "No supported AI provider is available."
         )
-
-        return response
