@@ -1,28 +1,43 @@
-import streamlit as st
-import joblib
+"""
+ZENTIQ - Intelligent Business Assistant
+Dual-mode Streamlit Application
+
+Mode 1: Machine Learning Retail Support
+Mode 2: ZENTIQ AI Assistant powered by Ollama
+"""
+
+import sys
 import json
+import joblib
+import streamlit as st
+
 from pathlib import Path
+
 
 # --------------------------------------------------
 # 1. PAGE CONFIGURATION
 # --------------------------------------------------
 
 st.set_page_config(
-    page_title="Nigerian Retail Support",
-    page_icon="🛍️",
+    page_title="ZENTIQ - Intelligent Business Assistant",
+    page_icon="🤖",
     layout="centered"
 )
 
+
 # --------------------------------------------------
-# 2. PROJECT AND MODEL PATH CONFIGURATION
+# 2. PROJECT CONFIGURATION
 # --------------------------------------------------
 
 PROJECT_DIR = Path(__file__).resolve().parent
 MODEL_DIR = PROJECT_DIR / "models"
 
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
+
 
 # --------------------------------------------------
-# 3. LOAD SAVED MODEL COMPONENTS
+# 3. LOAD MACHINE LEARNING COMPONENTS
 # --------------------------------------------------
 
 @st.cache_resource
@@ -32,7 +47,6 @@ def load_components():
     model_path = MODEL_DIR / "zentIQ_logistic_regression_model.pkl"
     mapping_path = MODEL_DIR / "zentIQ_intent_response_mapping.json"
 
-    # Verify that all required model files exist
     required_files = [
         vectorizer_path,
         model_path,
@@ -45,34 +59,25 @@ def load_components():
                 f"Required model file not found: {file_path}"
             )
 
-    # Load TF-IDF vectorizer
     vectorizer = joblib.load(vectorizer_path)
-
-    # Load Logistic Regression model
     model = joblib.load(model_path)
 
-    # Load intent-response mapping
-    with open(
-        mapping_path,
-        "r",
-        encoding="utf-8"
-    ) as file:
+    with open(mapping_path, "r", encoding="utf-8") as file:
         response_mapping = json.load(file)
 
     return vectorizer, model, response_mapping
 
 
-# Load chatbot components
 try:
     vectorizer, model, response_mapping = load_components()
 
 except Exception as error:
-    st.error(f"Unable to load chatbot components: {error}")
+    st.error(f"Unable to load ML chatbot components: {error}")
     st.stop()
 
 
 # --------------------------------------------------
-# 4. PREDICTION FUNCTION
+# 4. MACHINE LEARNING PREDICTION FUNCTION
 # --------------------------------------------------
 
 def predict_customer_query(question):
@@ -93,82 +98,145 @@ def predict_customer_query(question):
 
 
 # --------------------------------------------------
-# 5. APPLICATION HEADER
+# 5. LOAD ZENTIQ AI SERVICE WHEN REQUIRED
 # --------------------------------------------------
 
-st.title("🛍️ Nigerian Retail Support")
-st.subheader("Your Intelligent Retail Support Assistant")
+@st.cache_resource
+def load_llm_service():
+
+    from ai_engine.llm_service import LLMService
+
+    return LLMService()
+
+
+# --------------------------------------------------
+# 6. APPLICATION HEADER
+# --------------------------------------------------
+
+st.title("🤖 ZENTIQ")
+
+st.subheader("Smarter Business. Better Decisions.")
 
 st.write(
-    "Welcome! Ask questions about your retail business, "
-    "sales, payments, inventory, deliveries and more. "
-    "I'm here to help."
+    "Welcome to ZENTIQ, your intelligent business assistant. "
+    "Get business support, explore ideas, and find practical "
+    "solutions to everyday business challenges."
 )
 
 st.divider()
 
 
 # --------------------------------------------------
-# 6. SIDEBAR
+# 7. SIDEBAR AND ASSISTANT SELECTION
 # --------------------------------------------------
 
 with st.sidebar:
 
-    st.title("About the Assistant")
+    st.title("ZENTIQ Assistant")
 
-    st.write(
-        "Nigerian Retail Support is a machine-learning "
-        "powered chatbot designed to assist Nigerian "
-        "retail business owners."
+    assistant_mode = st.radio(
+        "Choose your assistant:",
+        [
+            "ZENTIQ AI Assistant",
+            "Machine Learning Retail Support"
+        ]
     )
-
-    st.subheader("Available Support Areas")
-
-    st.markdown("""
-    - Business Expenses
-    - Customer Acquisition
-    - Daily Sales
-    - Damaged Products
-    - Delivery Costs and Delays
-    - Inventory Reordering
-    - Order Tracking
-    - Payment Confirmation
-    - Payment Methods
-    - POS Issues
-    - Profit Calculation
-    - Record Keeping
-    - Refund Requests
-    - Selling Prices
-    - Social Media Marketing
-    - Stock Availability
-    - Supplier Onboarding
-    - Supplier Price Changes
-    """)
 
     st.divider()
 
-    st.caption("Powered by TF-IDF and Logistic Regression.")
+    if assistant_mode == "ZENTIQ AI Assistant":
 
-    if st.button("Clear Chat", use_container_width=True):
-        st.session_state.messages = []
+        st.subheader("AI Business Assistance")
+
+        st.write(
+            "Powered by Llama 3.2 through the ZENTIQ AI Engine."
+        )
+
+        prompt_options = {
+            "General Business": "general",
+            "Customer Support": "customer_support",
+            "Financial Assistance": "financial",
+            "Sales Assistance": "sales"
+        }
+
+        selected_prompt = st.selectbox(
+            "Choose assistance area:",
+            list(prompt_options.keys())
+        )
+
+        template_name = prompt_options[selected_prompt]
+
+        history_key = "zentiq_ai_messages"
+
+    else:
+
+        st.subheader("Retail Support")
+
+        st.write(
+            "Powered by TF-IDF and Logistic Regression."
+        )
+
+        st.markdown("""
+        **Available Support Areas**
+
+        - Business Expenses
+        - Customer Acquisition
+        - Daily Sales
+        - Damaged Products
+        - Delivery Costs and Delays
+        - Inventory Reordering
+        - Order Tracking
+        - Payment Confirmation
+        - Payment Methods
+        - POS Issues
+        - Profit Calculation
+        - Record Keeping
+        - Refund Requests
+        - Selling Prices
+        - Social Media Marketing
+        - Stock Availability
+        - Supplier Onboarding
+        - Supplier Price Changes
+        """)
+
+        history_key = "ml_retail_messages"
+
+    st.divider()
+
+    if st.button("Clear Current Chat", use_container_width=True):
+
+        st.session_state[history_key] = []
         st.rerun()
 
+    st.caption("ZENTIQ | Intelligent Business Platform")
+
 
 # --------------------------------------------------
-# 7. CHAT HISTORY
+# 8. INITIALISE SEPARATE CHAT HISTORIES
 # --------------------------------------------------
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if "zentiq_ai_messages" not in st.session_state:
+    st.session_state.zentiq_ai_messages = []
+
+if "ml_retail_messages" not in st.session_state:
+    st.session_state.ml_retail_messages = []
 
 
-for message in st.session_state.messages:
+messages = st.session_state[history_key]
+
+
+# --------------------------------------------------
+# 9. DISPLAY CHAT HISTORY
+# --------------------------------------------------
+
+for message in messages:
 
     with st.chat_message(message["role"]):
 
         st.markdown(message["content"])
 
         if message["role"] == "assistant":
+
             if "intent" in message:
 
                 st.caption(
@@ -182,59 +250,110 @@ for message in st.session_state.messages:
 
 
 # --------------------------------------------------
-# 8. CUSTOMER INPUT AND CHATBOT RESPONSE
+# 10. USER INPUT
 # --------------------------------------------------
 
-customer_question = st.chat_input(
-    "Ask your retail support question..."
-)
+if assistant_mode == "ZENTIQ AI Assistant":
 
-if customer_question:
+    placeholder = "Ask ZENTIQ about your business..."
 
-    st.session_state.messages.append({
+else:
+
+    placeholder = "Ask your retail support question..."
+
+
+user_question = st.chat_input(placeholder)
+
+
+# --------------------------------------------------
+# 11. PROCESS USER QUESTION
+# --------------------------------------------------
+
+if user_question:
+
+    messages.append({
         "role": "user",
-        "content": customer_question
+        "content": user_question
     })
 
     with st.chat_message("user"):
-        st.markdown(customer_question)
+        st.markdown(user_question)
 
     with st.chat_message("assistant"):
 
-        with st.spinner("Analysing your question..."):
+        if assistant_mode == "ZENTIQ AI Assistant":
 
-            predicted_intent, response, confidence = (
-                predict_customer_query(customer_question)
-            )
+            try:
 
-        st.markdown(response)
+                with st.spinner("ZENTIQ is thinking..."):
 
-        st.caption(
-            f"Predicted Intent: {predicted_intent}"
-        )
+                    llm = load_llm_service()
 
-        st.caption(
-            f"Prediction Confidence: {confidence:.2f}%"
-        )
+                    response = llm.generate_response(
+                        prompt=user_question,
+                        task="general",
+                        template_name=template_name,
+                        temperature=0.3
+                    )
 
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": response,
-        "intent": predicted_intent,
-        "confidence": confidence
-    })
+                st.markdown(response)
+
+                messages.append({
+                    "role": "assistant",
+                    "content": response
+                })
+
+            except Exception as error:
+
+                st.error(
+                    "ZENTIQ AI could not generate a response. "
+                    "Please check that Ollama is running and "
+                    "the required model is available."
+                )
+
+                st.caption(f"Technical details: {error}")
+
+        else:
+
+            try:
+
+                with st.spinner("Analysing your question..."):
+
+                    predicted_intent, response, confidence = (
+                        predict_customer_query(user_question)
+                    )
+
+                st.markdown(response)
+
+                st.caption(
+                    f"Predicted Intent: {predicted_intent}"
+                )
+
+                st.caption(
+                    f"Prediction Confidence: {confidence:.2f}%"
+                )
+
+                messages.append({
+                    "role": "assistant",
+                    "content": response,
+                    "intent": predicted_intent,
+                    "confidence": confidence
+                })
+
+            except Exception as error:
+
+                st.error(
+                    f"Unable to process your question: {error}"
+                )
 
 
 # --------------------------------------------------
-# 9. FOOTER
+# 12. APPLICATION FOOTER
 # --------------------------------------------------
 
 st.divider()
 
 st.caption(
-    "Nigerian Retail Support | Machine Learning Project"
-)
-
-st.caption(
-    "Designed to support better retail business operations."
+    "ZENTIQ | Smarter Business. Better Decisions. "
+    "Unlimited Possibilities."
 )
