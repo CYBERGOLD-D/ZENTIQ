@@ -2,9 +2,11 @@
 """
 ZENTIQ - Hybrid LLM Service
 
-Coordinates AI requests between Groq and Ollama.
-Groq is the primary provider.
-Ollama is the automatic fallback provider.
+Groq is the primary AI provider.
+Ollama is the automatic backup provider.
+
+ZENTIQ automatically identifies and displays the provider
+that successfully generates each response.
 """
 
 from ai_engine.model_manager import ModelManager
@@ -20,7 +22,7 @@ class LLMService:
         groq_client=None,
         ollama_client=None
     ):
-        # Preserve compatibility with the previous client argument.
+        # Maintain compatibility with the previous client setup.
         if client is not None and ollama_client is None:
             ollama_client = client
 
@@ -35,7 +37,7 @@ class LLMService:
         self.prompt_templates = PromptTemplates()
 
     def get_system_prompt(self, template_name="general"):
-        """Retrieve the requested ZENTIQ prompt template."""
+        """Retrieve the appropriate ZENTIQ assistant instructions."""
 
         templates = {
             "general": self.prompt_templates.general_business_assistant,
@@ -59,7 +61,13 @@ class LLMService:
         temperature=0.3,
         template_name="general"
     ):
-        """Generate a response with automatic provider fallback."""
+        """
+        Generate an AI response using Groq or Ollama.
+
+        Groq is attempted first.
+        Ollama automatically takes over when Groq fails.
+        The active provider is updated after successful generation.
+        """
 
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Prompt cannot be empty.")
@@ -67,10 +75,14 @@ class LLMService:
         if system_prompt is None:
             system_prompt = self.get_system_prompt(template_name)
 
-        # Select the primary available provider.
+        # Identify the first available AI provider.
         provider = self.model_manager.select_provider()
 
+        # ------------------------------------------------
+        # PRIMARY PROVIDER: GROQ
+        # ------------------------------------------------
         if provider == "groq":
+
             model = self.model_manager.select_model(
                 task=task,
                 provider="groq"
@@ -84,18 +96,20 @@ class LLMService:
                     temperature=temperature
                 )
 
+                # Groq successfully generated the response.
+                self.model_manager.active_provider = "groq"
+
                 return response
 
             except Exception as groq_error:
-                # Automatically try Ollama if Groq fails.
+
+                # Groq failed. Check whether Ollama can take over.
                 if self.ollama_client.check_connection():
 
                     try:
-                        fallback_model = (
-                            self.model_manager.select_model(
-                                task=task,
-                                provider="ollama"
-                            )
+                        fallback_model = self.model_manager.select_model(
+                            task=task,
+                            provider="ollama"
                         )
 
                         response = self.ollama_client.generate(
@@ -105,11 +119,14 @@ class LLMService:
                             temperature=temperature
                         )
 
+                        # Ollama successfully took over.
+                        self.model_manager.active_provider = "ollama"
+
                         return response
 
                     except Exception as ollama_error:
                         raise ConnectionError(
-                            "Both Groq and Ollama failed. "
+                            "Both AI providers failed. "
                             f"Groq error: {groq_error}. "
                             f"Ollama error: {ollama_error}"
                         ) from ollama_error
@@ -119,7 +136,9 @@ class LLMService:
                     f"Groq error: {groq_error}"
                 ) from groq_error
 
-        # Use Ollama when Groq is unavailable.
+        # ------------------------------------------------
+        # BACKUP PROVIDER: OLLAMA
+        # ------------------------------------------------
         if provider == "ollama":
 
             model = self.model_manager.select_model(
@@ -127,12 +146,17 @@ class LLMService:
                 provider="ollama"
             )
 
-            return self.ollama_client.generate(
+            response = self.ollama_client.generate(
                 prompt=prompt,
                 model=model,
                 system_prompt=system_prompt,
                 temperature=temperature
             )
+
+            # Ollama is handling the request.
+            self.model_manager.active_provider = "ollama"
+
+            return response
 
         raise ConnectionError(
             "No supported AI provider is available."
