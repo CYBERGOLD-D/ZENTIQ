@@ -1,9 +1,10 @@
+
 """
 ZENTIQ - Intelligent Business Assistant
-Dual-mode Streamlit Application
+Hybrid AI Streamlit Application
 
 Mode 1: Machine Learning Retail Support
-Mode 2: ZENTIQ AI Assistant powered by Ollama
+Mode 2: Hybrid AI Assistant (Groq + Ollama)
 """
 
 import sys
@@ -98,7 +99,7 @@ def predict_customer_query(question):
 
 
 # --------------------------------------------------
-# 5. LOAD ZENTIQ AI SERVICE WHEN REQUIRED
+# 5. LOAD HYBRID AI SERVICE
 # --------------------------------------------------
 
 @st.cache_resource
@@ -146,10 +147,11 @@ with st.sidebar:
 
     if assistant_mode == "ZENTIQ AI Assistant":
 
-        st.subheader("AI Business Assistance")
+        st.subheader("Hybrid AI Business Assistance")
 
         st.write(
-            "Powered by Llama 3.2 through the ZENTIQ AI Engine."
+            "Powered by Groq Cloud as the primary AI provider "
+            "and Ollama as the secondary provider."
         )
 
         prompt_options = {
@@ -248,6 +250,12 @@ for message in messages:
                     f"{message['confidence']:.2f}%"
                 )
 
+            if "provider" in message:
+
+                st.caption(
+                    f"AI Provider: {message['provider']}"
+                )
+
 
 # --------------------------------------------------
 # 10. USER INPUT
@@ -296,19 +304,29 @@ if user_question:
                         temperature=0.3
                     )
 
+                    provider = (
+                        llm.model_manager.active_provider
+                        or "Hybrid AI"
+                    )
+
                 st.markdown(response)
+
+                st.caption(
+                    f"AI Provider: {provider.upper()}"
+                )
 
                 messages.append({
                     "role": "assistant",
-                    "content": response
+                    "content": response,
+                    "provider": provider
                 })
 
             except Exception as error:
 
                 st.error(
                     "ZENTIQ AI could not generate a response. "
-                    "Please check that Ollama is running and "
-                    "the required model is available."
+                    "Please check your AI provider configuration "
+                    "and network connectivity."
                 )
 
                 st.caption(f"Technical details: {error}")
