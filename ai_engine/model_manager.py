@@ -1,39 +1,69 @@
-"""
-ZENTIQ - Model Manager
 
-Manages available language models and model selection.
+"""
+ZENTIQ - Hybrid Model Manager
+
+Manages Groq as the primary AI provider
+and Ollama as the secondary provider.
 """
 
+from ai_engine.groq_client import GroqClient
 from ai_engine.ollama_client import OllamaClient
 
 
 class ModelManager:
 
-    def __init__(self, client=None):
-        self.client = client or OllamaClient()
+    def __init__(
+        self,
+        groq_client=None,
+        ollama_client=None
+    ):
+        self.groq_client = groq_client or GroqClient()
+        self.ollama_client = ollama_client or OllamaClient()
 
-        self.default_model = "llama3.2:1b"
+        self.default_model = "llama-3.3-70b-versatile"
+        self.ollama_model = "llama3.2:1b"
         self.guard_model = "llama-guard3:1b"
 
-    def get_available_models(self):
-        """Return all models currently installed in Ollama."""
-        return self.client.list_models()
+        self.active_provider = None
 
-    def is_model_available(self, model_name):
-        """Check whether a requested model is installed."""
-        return model_name in self.get_available_models()
+    def select_provider(self):
+        """Select Groq first, then Ollama as fallback."""
 
-    def select_model(self, task="general"):
-        """Select a model according to the requested task."""
+        if self.groq_client.check_connection():
+            self.active_provider = "groq"
+            return "groq"
 
-        if task == "safety":
-            selected_model = self.guard_model
-        else:
-            selected_model = self.default_model
+        if self.ollama_client.check_connection():
+            self.active_provider = "ollama"
+            return "ollama"
 
-        if not self.is_model_available(selected_model):
-            raise ValueError(
-                f"Required model is not installed: {selected_model}"
-            )
+        raise ConnectionError(
+            "Neither Groq nor Ollama is currently available."
+        )
 
-        return selected_model
+    def select_model(self, task="general", provider=None):
+
+        provider = provider or self.select_provider()
+
+        if provider == "groq":
+            return self.default_model
+
+        if provider == "ollama":
+            if task == "safety":
+                return self.guard_model
+            return self.ollama_model
+
+        raise ValueError(f"Unknown AI provider: {provider}")
+
+    def get_available_models(self, provider=None):
+
+        provider = provider or self.select_provider()
+
+        if provider == "groq":
+            return self.groq_client.list_models()
+
+        if provider == "ollama":
+            return self.ollama_client.list_models()
+
+        return []
+
