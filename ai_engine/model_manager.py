@@ -2,8 +2,8 @@
 """
 ZENTIQ - Hybrid Model Manager
 
-Manages Groq as the primary AI provider
-and Ollama as the secondary provider.
+Groq is the primary AI provider.
+Ollama is the secondary AI provider.
 """
 
 from ai_engine.groq_client import GroqClient
@@ -17,28 +17,39 @@ class ModelManager:
         groq_client=None,
         ollama_client=None
     ):
-        self.groq_client = groq_client or GroqClient()
-        self.ollama_client = ollama_client or OllamaClient()
+        # Initialize Groq without preventing Ollama from starting
+        self.groq_client = groq_client
 
-        self.default_model = "llama-3.3-70b-versatile"
+        if self.groq_client is None:
+            try:
+                self.groq_client = GroqClient()
+            except Exception:
+                self.groq_client = None
+
+        self.ollama_client = (
+            ollama_client or OllamaClient()
+        )
+
+        self.default_model = "openai/gpt-oss-20b"
         self.ollama_model = "llama3.2:1b"
         self.guard_model = "llama-guard3:1b"
 
         self.active_provider = None
 
     def select_provider(self):
-        """Select Groq first, then Ollama as fallback."""
+        """Try Groq first, then Ollama."""
 
-        if self.groq_client.check_connection():
-            self.active_provider = "groq"
-            return "groq"
+        if self.groq_client is not None:
+            if self.groq_client.check_connection():
+                self.active_provider = "groq"
+                return "groq"
 
         if self.ollama_client.check_connection():
             self.active_provider = "ollama"
             return "ollama"
 
         raise ConnectionError(
-            "Neither Groq nor Ollama is currently available."
+            "Neither Groq nor Ollama is available."
         )
 
     def select_model(self, task="general", provider=None):
@@ -51,9 +62,12 @@ class ModelManager:
         if provider == "ollama":
             if task == "safety":
                 return self.guard_model
+
             return self.ollama_model
 
-        raise ValueError(f"Unknown AI provider: {provider}")
+        raise ValueError(
+            f"Unknown AI provider: {provider}"
+        )
 
     def get_available_models(self, provider=None):
 
@@ -66,4 +80,3 @@ class ModelManager:
             return self.ollama_client.list_models()
 
         return []
-
