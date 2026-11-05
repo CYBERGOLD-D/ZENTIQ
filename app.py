@@ -4,15 +4,26 @@ ZENTIQ - Intelligent Business Assistant
 Hybrid AI Streamlit Application
 
 Mode 1: Machine Learning Retail Support
-Mode 2: Hybrid AI Assistant (Groq + Ollama)
+Mode 2: Hybrid AI Assistant (Ollama + Groq)
+
+Features:
+- Supabase email authentication
+- Persistent conversation history
+- User-specific conversation access
+- Conversation recovery and retry saving
+- PDF conversation export
 """
 
 import sys
 import json
+import io
+
 import joblib
 import streamlit as st
 
 from pathlib import Path
+from datetime import datetime, timezone
+from xml.sax.saxutils import escape
 
 
 # --------------------------------------------------
@@ -38,7 +49,33 @@ if str(PROJECT_DIR) not in sys.path:
 
 
 # --------------------------------------------------
-# 3. LOAD MACHINE LEARNING COMPONENTS
+# 3. DATABASE AND AUTHENTICATION IMPORTS
+# --------------------------------------------------
+
+from database.auth import (
+    register_user,
+    login_user
+)
+
+from database.session_manager import (
+    get_authenticated_client,
+    save_authenticated_session,
+    logout_authenticated_user,
+    USER_ID_KEY,
+    USER_EMAIL_KEY
+)
+
+from database.repositories import (
+    create_conversation,
+    get_conversations,
+    get_conversation,
+    update_conversation,
+    delete_conversation
+)
+
+
+# --------------------------------------------------
+# 4. LOAD MACHINE LEARNING COMPONENTS
 # --------------------------------------------------
 
 @st.cache_resource
@@ -55,6 +92,7 @@ def load_components():
     ]
 
     for file_path in required_files:
+
         if not file_path.is_file():
             raise FileNotFoundError(
                 f"Required model file not found: {file_path}"
@@ -70,15 +108,20 @@ def load_components():
 
 
 try:
+
     vectorizer, model, response_mapping = load_components()
 
 except Exception as error:
-    st.error(f"Unable to load ML chatbot components: {error}")
+
+    st.error(
+        f"Unable to load ML chatbot components: {error}"
+    )
+
     st.stop()
 
 
 # --------------------------------------------------
-# 4. MACHINE LEARNING PREDICTION FUNCTION
+# 5. MACHINE LEARNING PREDICTION
 # --------------------------------------------------
 
 def predict_customer_query(question):
@@ -88,6 +131,7 @@ def predict_customer_query(question):
     predicted_intent = model.predict(question_tfidf)[0]
 
     probabilities = model.predict_proba(question_tfidf)[0]
+
     confidence = max(probabilities) * 100
 
     response = response_mapping.get(
@@ -99,7 +143,7 @@ def predict_customer_query(question):
 
 
 # --------------------------------------------------
-# 5. LOAD HYBRID AI SERVICE
+# 6. LOAD HYBRID AI SERVICE
 # --------------------------------------------------
 
 @st.cache_resource
@@ -111,7 +155,466 @@ def load_llm_service():
 
 
 # --------------------------------------------------
-# 6. APPLICATION HEADER
+# 7. AUTHENTICATION INTERFACE
+# --------------------------------------------------
+
+def show_authentication_page(client):
+
+    st.title("🤖 ZENTIQ")
+
+    st.subheader("Welcome to your Intelligent Business Assistant")
+
+    st.write(
+        "Sign in to access your business assistant "
+        "and securely manage your conversation history."
+    )
+
+    login_tab, register_tab = st.tabs(
+        ["Sign In", "Create Account"]
+    )
+
+    with login_tab:
+
+        with st.form("zentiq_login_form"):
+
+            email = st.text_input(
+                "Email address",
+                placeholder="Enter your email"
+            )
+
+            password = st.text_input(
+                "Password",
+                type="password"
+            )
+
+            login_button = st.form_submit_button(
+                "Sign In",
+                use_container_width=True
+            )
+
+        if login_button:
+
+            try:
+
+                user, session = login_user(
+                    client,
+                    email,
+                    password
+                )
+
+                if session is None:
+
+                    st.error(
+                        "No active session was returned. "
+                        "Please confirm your email address."
+                    )
+
+                else:
+
+                    save_authenticated_session(session)
+
+                    st.session_state[USER_ID_KEY] = user.id
+
+                    st.session_state[USER_EMAIL_KEY] = (
+                        user.email or email
+                    )
+
+                    st.success("Login successful.")
+
+                    st.rerun()
+
+            except Exception:
+
+                st.error(
+                    "Unable to sign in. Check your email, "
+                    "password and account verification."
+                )
+
+    with register_tab:
+
+        with st.form("zentiq_register_form"):
+
+            new_email = st.text_input(
+                "Email address",
+                placeholder="Enter your email"
+            )
+
+            new_password = st.text_input(
+                "Password",
+                type="password",
+                help="Use at least 8 characters."
+            )
+
+            confirm_password = st.text_input(
+                "Confirm password",
+                type="password"
+            )
+
+            register_button = st.form_submit_button(
+                "Create Account",
+                use_container_width=True
+            )
+
+        if register_button:
+
+            if new_password != confirm_password:
+
+                st.error("Your passwords do not match.")
+
+            else:
+
+                try:
+
+                    user, session = register_user(
+                        client,
+                        new_email,
+                        new_password
+                    )
+
+                    if session is None:
+
+                        st.success(
+                            "Your account has been created. "
+                            "Please check your email and click "
+                            "the confirmation link before signing in."
+                        )
+
+                    else:
+
+                        save_authenticated_session(session)
+
+                        st.session_state[USER_ID_KEY] = user.id
+
+                        st.session_state[USER_EMAIL_KEY] = (
+                            user.email or new_email
+                        )
+
+                        st.success("Your account is ready.")
+
+                        st.rerun()
+
+                except Exception:
+
+                    st.error(
+                        "Unable to create your account. "
+                        "Please check your details and try again."
+                    )
+
+
+# --------------------------------------------------
+# 8. RESTORE AUTHENTICATED USER SESSION
+# --------------------------------------------------
+
+supabase, authenticated_user, session_error = (
+    get_authenticated_client()
+)
+
+if session_error:
+
+    st.warning(session_error)
+
+    if st.button("Retry Connection", use_container_width=True):
+        st.rerun()
+
+    st.stop()
+
+
+if authenticated_user is None:
+
+    show_authentication_page(supabase)
+
+    st.stop()
+
+
+user_id = authenticated_user.id
+
+user_email = authenticated_user.email or "Authenticated user"
+
+
+# --------------------------------------------------
+# 9. INITIALISE STREAMLIT SESSION STATE
+# --------------------------------------------------
+
+SESSION_DEFAULTS = {
+
+    "zentiq_ai_messages": [],
+
+    "ml_retail_messages": [],
+
+    "zentiq_active_conversations": {},
+
+    "zentiq_unsaved_modes": set()
+
+}
+
+for key, default_value in SESSION_DEFAULTS.items():
+
+    if key not in st.session_state:
+        st.session_state[key] = default_value
+
+
+# --------------------------------------------------
+# 10. CONVERSATION PERSISTENCE
+# --------------------------------------------------
+
+def persist_conversation(
+    client,
+    authenticated_user_id,
+    mode,
+    messages
+):
+    """
+    Create or update a conversation.
+
+    A stable conversation ID prevents duplicate records.
+    """
+
+    if not messages:
+        return None
+
+    active_conversations = st.session_state[
+        "zentiq_active_conversations"
+    ]
+
+    conversation_id = active_conversations.get(mode)
+
+    first_user_message = next(
+        (
+            message["content"]
+            for message in messages
+            if message.get("role") == "user"
+        ),
+        "ZENTIQ Conversation"
+    )
+
+    title = first_user_message.strip()[:80]
+
+    if not title:
+        title = "ZENTIQ Conversation"
+
+    if conversation_id:
+
+        result = update_conversation(
+            client=client,
+            user_id=authenticated_user_id,
+            conversation_id=conversation_id,
+            messages=messages,
+            title=title
+        )
+
+        if result is None:
+            raise RuntimeError(
+                "The conversation could not be updated."
+            )
+
+    else:
+
+        result = create_conversation(
+            client=client,
+            user_id=authenticated_user_id,
+            title=title,
+            mode=mode,
+            messages=messages
+        )
+
+        if not result or not result.get("id"):
+            raise RuntimeError(
+                "Supabase did not return a conversation ID."
+            )
+
+        active_conversations[mode] = result["id"]
+
+    st.session_state["zentiq_unsaved_modes"].discard(mode)
+
+    return result
+
+
+# --------------------------------------------------
+# 11. PDF EXPORT
+# --------------------------------------------------
+
+def build_conversation_pdf(messages, mode):
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import (
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        KeepTogether
+    )
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    import reportlab
+
+    buffer = io.BytesIO()
+
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=0.65 * inch,
+        leftMargin=0.65 * inch,
+        topMargin=0.65 * inch,
+        bottomMargin=0.65 * inch
+    )
+
+    styles = getSampleStyleSheet()
+
+    font_name = "Helvetica"
+    bold_font = "Helvetica-Bold"
+
+    # Use ReportLab's bundled Vera font where available.
+    font_directory = Path(reportlab.__file__).parent / "fonts"
+
+    try:
+
+        regular_font = font_directory / "Vera.ttf"
+        bold_font_path = font_directory / "VeraBd.ttf"
+
+        if regular_font.exists() and bold_font_path.exists():
+
+            if "ZENTIQVera" not in pdfmetrics.getRegisteredFontNames():
+
+                pdfmetrics.registerFont(
+                    TTFont("ZENTIQVera", str(regular_font))
+                )
+
+                pdfmetrics.registerFont(
+                    TTFont("ZENTIQVera-Bold", str(bold_font_path))
+                )
+
+            font_name = "ZENTIQVera"
+            bold_font = "ZENTIQVera-Bold"
+
+    except Exception:
+        pass
+
+    title_style = ParagraphStyle(
+        "ZENTIQTitle",
+        parent=styles["Title"],
+        fontName=bold_font,
+        fontSize=19,
+        textColor=colors.HexColor("#17365D"),
+        spaceAfter=12
+    )
+
+    heading_style = ParagraphStyle(
+        "ZENTIQHeading",
+        parent=styles["Heading2"],
+        fontName=bold_font,
+        fontSize=11,
+        spaceBefore=10,
+        spaceAfter=5
+    )
+
+    body_style = ParagraphStyle(
+        "ZENTIQBody",
+        parent=styles["BodyText"],
+        fontName=font_name,
+        fontSize=9,
+        leading=14,
+        spaceAfter=8,
+        wordWrap="CJK"
+    )
+
+    story = [
+
+        Paragraph("ZENTIQ", title_style),
+
+        Paragraph(
+            escape("Intelligent Business Assistant"),
+            heading_style
+        ),
+
+        Paragraph(
+            f"Assistant: {escape(mode)}",
+            body_style
+        ),
+
+        Paragraph(
+            "Generated: "
+            + datetime.now(timezone.utc).strftime(
+                "%Y-%m-%d %H:%M UTC"
+            ),
+            body_style
+        ),
+
+        Spacer(1, 15)
+
+    ]
+
+    for message in messages:
+
+        role = message.get("role", "unknown").title()
+
+        content = str(message.get("content", ""))
+
+        safe_content = escape(content).replace(
+            "\n",
+            "<br/>"
+        )
+
+        block = [
+
+            Paragraph(
+                escape(role),
+                heading_style
+            ),
+
+            Paragraph(
+                safe_content,
+                body_style
+            )
+
+        ]
+
+        if "provider" in message:
+
+            block.append(
+                Paragraph(
+                    "AI Provider: "
+                    + escape(str(message["provider"])),
+                    body_style
+                )
+            )
+
+        if "intent" in message:
+
+            block.append(
+                Paragraph(
+                    "Predicted Intent: "
+                    + escape(str(message["intent"])),
+                    body_style
+                )
+            )
+
+        if "confidence" in message:
+
+            block.append(
+                Paragraph(
+                    "Confidence: "
+                    + escape(
+                        f"{message['confidence']:.2f}%"
+                    ),
+                    body_style
+                )
+            )
+
+        block.append(Spacer(1, 6))
+
+        story.append(KeepTogether(block))
+
+    document.build(story)
+
+    buffer.seek(0)
+
+    return buffer.getvalue()
+
+
+# --------------------------------------------------
+# 12. APPLICATION HEADER
 # --------------------------------------------------
 
 st.title("🤖 ZENTIQ")
@@ -124,16 +627,53 @@ st.write(
     "solutions to everyday business challenges."
 )
 
+st.caption(f"Signed in as: {user_email}")
+
 st.divider()
 
 
 # --------------------------------------------------
-# 7. SIDEBAR AND ASSISTANT SELECTION
+# 13. SIDEBAR AND ASSISTANT SELECTION
 # --------------------------------------------------
 
 with st.sidebar:
 
     st.title("ZENTIQ Assistant")
+
+    if st.button(
+        "Sign Out",
+        use_container_width=True
+    ):
+
+        success, message = logout_authenticated_user(
+            supabase
+        )
+
+        st.session_state.pop(
+            "zentiq_active_conversations",
+            None
+        )
+
+        st.session_state.pop(
+            "zentiq_unsaved_modes",
+            None
+        )
+
+        st.session_state.pop(
+            "zentiq_ai_messages",
+            None
+        )
+
+        st.session_state.pop(
+            "ml_retail_messages",
+            None
+        )
+
+        st.success(message) if success else st.warning(message)
+
+        st.rerun()
+
+    st.divider()
 
     assistant_mode = st.radio(
         "Choose your assistant:",
@@ -150,15 +690,20 @@ with st.sidebar:
         st.subheader("Hybrid AI Business Assistance")
 
         st.write(
-            "Powered by Groq Cloud as the primary AI provider "
-            "and Ollama as the secondary provider."
+            "Powered by Ollama as the primary AI provider "
+            "and Groq Cloud as the fallback provider."
         )
 
         prompt_options = {
+
             "General Business": "general",
+
             "Customer Support": "customer_support",
+
             "Financial Assistance": "financial",
+
             "Sales Assistance": "sales"
+
         }
 
         selected_prompt = st.selectbox(
@@ -205,173 +750,116 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button("Clear Current Chat", use_container_width=True):
+    active_conversations = st.session_state[
+        "zentiq_active_conversations"
+    ]
+
+    active_conversation_id = active_conversations.get(
+        assistant_mode
+    )
+
+    if st.button(
+        "New Conversation",
+        use_container_width=True
+    ):
+
+        active_conversations[assistant_mode] = None
 
         st.session_state[history_key] = []
+
+        st.session_state["zentiq_unsaved_modes"].discard(
+            assistant_mode
+        )
+
         st.rerun()
 
-    st.caption("ZENTIQ | Intelligent Business Platform")
+    st.subheader("Recent Conversations")
 
+    try:
 
-# --------------------------------------------------
-# 8. INITIALISE SEPARATE CHAT HISTORIES
-# --------------------------------------------------
+        saved_conversations = get_conversations(
+            supabase,
+            user_id
+        )
 
-if "zentiq_ai_messages" not in st.session_state:
-    st.session_state.zentiq_ai_messages = []
+        mode_conversations = [
+            conversation
+            for conversation in saved_conversations
+            if conversation.get("mode") == assistant_mode
+        ]
 
-if "ml_retail_messages" not in st.session_state:
-    st.session_state.ml_retail_messages = []
+        for conversation in mode_conversations[:10]:
 
+            conversation_id = conversation["id"]
 
-messages = st.session_state[history_key]
+            conversation_title = conversation.get(
+                "title",
+                "Untitled Conversation"
+            )
 
-
-# --------------------------------------------------
-# 9. DISPLAY CHAT HISTORY
-# --------------------------------------------------
-
-for message in messages:
-
-    with st.chat_message(message["role"]):
-
-        st.markdown(message["content"])
-
-        if message["role"] == "assistant":
-
-            if "intent" in message:
-
-                st.caption(
-                    f"Predicted Intent: {message['intent']}"
+            if len(conversation_title) > 32:
+                conversation_title = (
+                    conversation_title[:29] + "..."
                 )
 
-                st.caption(
-                    f"Prediction Confidence: "
-                    f"{message['confidence']:.2f}%"
+            if st.button(
+                conversation_title,
+                key=f"conversation_{conversation_id}",
+                use_container_width=True
+            ):
+
+                selected_conversation = get_conversation(
+                    supabase,
+                    user_id,
+                    conversation_id
                 )
 
-            if "provider" in message:
+                if selected_conversation:
 
-                st.caption(
-                    f"AI Provider: {message['provider']}"
-                )
+                    active_conversations[assistant_mode] = (
+                        conversation_id
+                    )
 
+                    st.session_state[history_key] = (
+                        selected_conversation.get(
+                            "messages",
+                            []
+                        )
+                    )
 
-# --------------------------------------------------
-# 10. USER INPUT
-# --------------------------------------------------
+                    st.session_state["zentiq_unsaved_modes"].discard(
+                        assistant_mode
+                    )
 
-if assistant_mode == "ZENTIQ AI Assistant":
+                    st.rerun()
 
-    placeholder = "Ask ZENTIQ about your business..."
+    except Exception:
 
-else:
+        st.warning(
+            "Unable to retrieve saved conversations. "
+            "Your current session remains available."
+        )
 
-    placeholder = "Ask your retail support question..."
+    st.divider()
 
+    if st.button(
+        "Clear Current Chat",
+        use_container_width=True
+    ):
 
-user_question = st.chat_input(placeholder)
+        st.session_state[history_key] = []
 
-
-# --------------------------------------------------
-# 11. PROCESS USER QUESTION
-# --------------------------------------------------
-
-if user_question:
-
-    messages.append({
-        "role": "user",
-        "content": user_question
-    })
-
-    with st.chat_message("user"):
-        st.markdown(user_question)
-
-    with st.chat_message("assistant"):
-
-        if assistant_mode == "ZENTIQ AI Assistant":
+        if active_conversation_id:
 
             try:
 
-                with st.spinner("ZENTIQ is thinking..."):
-
-                    llm = load_llm_service()
-
-                    response = llm.generate_response(
-                        prompt=user_question,
-                        task="general",
-                        template_name=template_name,
-                        temperature=0.3
-                    )
-
-                    provider = (
-                        llm.model_manager.active_provider
-                        or "Hybrid AI"
-                    )
-
-                st.markdown(response)
-
-                st.caption(
-                    f"AI Provider: {provider.upper()}"
+                update_conversation(
+                    client=supabase,
+                    user_id=user_id,
+                    conversation_id=active_conversation_id,
+                    messages=[],
+                    title="Cleared Conversation"
                 )
 
-                messages.append({
-                    "role": "assistant",
-                    "content": response,
-                    "provider": provider
-                })
-
-            except Exception as error:
-
-                st.error(
-                    "ZENTIQ AI could not generate a response. "
-                    "Please check your AI provider configuration "
-                    "and network connectivity."
-                )
-
-                st.caption(f"Technical details: {error}")
-
-        else:
-
-            try:
-
-                with st.spinner("Analysing your question..."):
-
-                    predicted_intent, response, confidence = (
-                        predict_customer_query(user_question)
-                    )
-
-                st.markdown(response)
-
-                st.caption(
-                    f"Predicted Intent: {predicted_intent}"
-                )
-
-                st.caption(
-                    f"Prediction Confidence: {confidence:.2f}%"
-                )
-
-                messages.append({
-                    "role": "assistant",
-                    "content": response,
-                    "intent": predicted_intent,
-                    "confidence": confidence
-                })
-
-            except Exception as error:
-
-                st.error(
-                    f"Unable to process your question: {error}"
-                )
-
-
-# --------------------------------------------------
-# 12. APPLICATION FOOTER
-# --------------------------------------------------
-
-st.divider()
-
-st.caption(
-    "ZENTIQ | Smarter Business. Better Decisions. "
-    "Unlimited Possibilities."
-)
+                st.session_state["zentiq_unsaved_modes"].discard(
+                 
