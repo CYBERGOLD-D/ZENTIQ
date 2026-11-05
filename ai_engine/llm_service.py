@@ -10,6 +10,8 @@ Secondary conversational provider: Groq Cloud
 
 All incoming messages and generated responses
 are screened through Llama Guard.
+
+Developed by EverMark Creative Solutions.
 """
 
 from ai_engine.model_manager import ModelManager
@@ -94,13 +96,27 @@ class LLMService:
             f"Unsupported AI provider: {provider}"
         )
 
-    def _check_safety(self, content, stage):
+    def _check_safety(
+        self,
+        content,
+        stage,
+        user_message=None
+    ):
         """Screen content using Llama Guard."""
 
         if stage == "input":
             result = self.safety_guard.check_input(content)
+
+        elif stage == "output":
+            result = self.safety_guard.check_output(
+                assistant_response=content,
+                user_message=user_message
+            )
+
         else:
-            result = self.safety_guard.check_output(content)
+            raise ValueError(
+                f"Unsupported safety screening stage: {stage}"
+            )
 
         if not isinstance(result, dict):
             raise RuntimeError(
@@ -125,7 +141,8 @@ class LLMService:
         as fallback.
 
         Screen the user's message before generation and
-        the AI response before returning it.
+        the AI response with the original question before
+        returning it.
         """
 
         if not isinstance(prompt, str) or not prompt.strip():
@@ -262,13 +279,14 @@ class LLMService:
             )
 
         # ------------------------------------------------
-        # STAGE 5: SCREEN AI RESPONSE
+        # STAGE 5: CONTEXT-AWARE OUTPUT SAFETY SCREENING
         # ------------------------------------------------
 
         try:
             output_safe = self._check_safety(
                 response,
-                stage="output"
+                stage="output",
+                user_message=prompt
             )
 
         except Exception as error:
