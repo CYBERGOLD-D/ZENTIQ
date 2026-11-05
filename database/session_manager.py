@@ -8,7 +8,7 @@ session restoration and secure logout.
 
 import streamlit as st
 
-from database.dp import get_supabase_client
+from database.db import get_supabase_client
 from database.auth import (
     restore_user_session,
     get_session_tokens
