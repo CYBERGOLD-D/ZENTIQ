@@ -1,3 +1,4 @@
+
 """
 ZENTIQ - Intelligent Business Assistant
 Hybrid AI Streamlit Application
@@ -424,6 +425,444 @@ def persist_conversation(
         active_conversations[mode] = result["id"]
 
     st.session_state["zentiq_unsaved_modes"].discard(mode)
+
+    return result
+
+
+# --------------------------------------------------
+# 11. PDF EXPORT
+# --------------------------------------------------
+
+def build_conversation_pdf(messages, mode):
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import (
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        KeepTogether
+    )
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    import reportlab
+
+    buffer = io.BytesIO()
+
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=0.65 * inch,
+        leftMargin=0.65 * inch,
+        topMargin=0.65 * inch,
+        bottomMargin=0.65 * inch
+    )
+
+    styles = getSampleStyleSheet()
+
+    font_name = "Helvetica"
+    bold_font = "Helvetica-Bold"
+
+    # Use ReportLab's bundled Vera font where available.
+    font_directory = Path(reportlab.__file__).parent / "fonts"
+
+    try:
+
+        regular_font = font_directory / "Vera.ttf"
+        bold_font_path = font_directory / "VeraBd.ttf"
+
+        if regular_font.exists() and bold_font_path.exists():
+
+            if "ZENTIQVera" not in pdfmetrics.getRegisteredFontNames():
+
+                pdfmetrics.registerFont(
+                    TTFont("ZENTIQVera", str(regular_font))
+                )
+
+                pdfmetrics.registerFont(
+                    TTFont("ZENTIQVera-Bold", str(bold_font_path))
+                )
+
+            font_name = "ZENTIQVera"
+            bold_font = "ZENTIQVera-Bold"
+
+    except Exception:
+        pass
+
+    title_style = ParagraphStyle(
+        "ZENTIQTitle",
+        parent=styles["Title"],
+        fontName=bold_font,
+        fontSize=19,
+        textColor=colors.HexColor("#17365D"),
+        spaceAfter=12
+    )
+
+    heading_style = ParagraphStyle(
+        "ZENTIQHeading",
+        parent=styles["Heading2"],
+        fontName=bold_font,
+        fontSize=11,
+        spaceBefore=10,
+        spaceAfter=5
+    )
+
+    body_style = ParagraphStyle(
+        "ZENTIQBody",
+        parent=styles["BodyText"],
+        fontName=font_name,
+        fontSize=9,
+        leading=14,
+        spaceAfter=8,
+        wordWrap="CJK"
+    )
+
+    story = [
+
+        Paragraph("ZENTIQ", title_style),
+
+        Paragraph(
+            escape("Intelligent Business Assistant"),
+            heading_style
+        ),
+
+        Paragraph(
+            f"Assistant: {escape(mode)}",
+            body_style
+        ),
+
+        Paragraph(
+            "Generated: "
+            + datetime.now(timezone.utc).strftime(
+                "%Y-%m-%d %H:%M UTC"
+            ),
+            body_style
+        ),
+
+        Spacer(1, 15)
+
+    ]
+
+    for message in messages:
+
+        role = message.get("role", "unknown").title()
+
+        content = str(message.get("content", ""))
+
+        safe_content = escape(content).replace(
+            "\n",
+            "<br/>"
+        )
+
+        block = [
+
+            Paragraph(
+                escape(role),
+                heading_style
+            ),
+
+            Paragraph(
+                safe_content,
+                body_style
+            )
+
+        ]
+
+        if "provider" in message:
+
+            block.append(
+                Paragraph(
+                    "AI Provider: "
+                    + escape(str(message["provider"])),
+                    body_style
+                )
+            )
+
+        if "intent" in message:
+
+            block.append(
+                Paragraph(
+                    "Predicted Intent: "
+                    + escape(str(message["intent"])),
+                    body_style
+                )
+            )
+
+        if "confidence" in message:
+
+            block.append(
+                Paragraph(
+                    "Confidence: "
+                    + escape(
+                        f"{message['confidence']:.2f}%"
+                    ),
+                    body_style
+                )
+            )
+
+        block.append(Spacer(1, 6))
+
+        story.append(KeepTogether(block))
+
+    document.build(story)
+
+    buffer.seek(0)
+
+    return buffer.getvalue()
+
+
+# --------------------------------------------------
+# 12. APPLICATION HEADER
+# --------------------------------------------------
+
+st.title("🤖 ZENTIQ")
+
+st.subheader("Smarter Business. Better Decisions.")
+
+st.write(
+    "Welcome to ZENTIQ, your intelligent business assistant. "
+    "Get business support, explore ideas, and find practical "
+    "solutions to everyday business challenges."
+)
+
+st.caption(f"Signed in as: {user_email}")
+
+st.divider()
+
+
+# --------------------------------------------------
+# 13. SIDEBAR AND ASSISTANT SELECTION
+# --------------------------------------------------
+
+with st.sidebar:
+
+    st.title("ZENTIQ Assistant")
+
+    if st.button(
+        "Sign Out",
+        use_container_width=True
+    ):
+
+        success, message = logout_authenticated_user(
+            supabase
+        )
+
+        st.session_state.pop(
+            "zentiq_active_conversations",
+            None
+        )
+
+        st.session_state.pop(
+            "zentiq_unsaved_modes",
+            None
+        )
+
+        st.session_state.pop(
+            "zentiq_ai_messages",
+            None
+        )
+
+        st.session_state.pop(
+            "ml_retail_messages",
+            None
+        )
+
+        st.success(message) if success else st.warning(message)
+
+        st.rerun()
+
+    st.divider()
+
+    assistant_mode = st.radio(
+        "Choose your assistant:",
+        [
+            "ZENTIQ AI Assistant",
+            "Machine Learning Retail Support"
+        ]
+    )
+
+    st.divider()
+
+    if assistant_mode == "ZENTIQ AI Assistant":
+
+        st.subheader("Hybrid AI Business Assistance")
+
+        st.write(
+            "Powered by Ollama as the primary AI provider "
+            "and Groq Cloud as the fallback provider."
+        )
+
+        prompt_options = {
+
+            "General Business": "general",
+
+            "Customer Support": "customer_support",
+
+            "Financial Assistance": "financial",
+
+            "Sales Assistance": "sales"
+
+        }
+
+        selected_prompt = st.selectbox(
+            "Choose assistance area:",
+            list(prompt_options.keys())
+        )
+
+        template_name = prompt_options[selected_prompt]
+
+        history_key = "zentiq_ai_messages"
+
+    else:
+
+        st.subheader("Retail Support")
+
+        st.write(
+            "Powered by TF-IDF and Logistic Regression."
+        )
+
+        st.markdown("""
+        **Available Support Areas**
+
+        - Business Expenses
+        - Customer Acquisition
+        - Daily Sales
+        - Damaged Products
+        - Delivery Costs and Delays
+        - Inventory Reordering
+        - Order Tracking
+        - Payment Confirmation
+        - Payment Methods
+        - POS Issues
+        - Profit Calculation
+        - Record Keeping
+        - Refund Requests
+        - Selling Prices
+        - Social Media Marketing
+        - Stock Availability
+        - Supplier Onboarding
+        - Supplier Price Changes
+        """)
+
+        history_key = "ml_retail_messages"
+
+    st.divider()
+
+    active_conversations = st.session_state[
+        "zentiq_active_conversations"
+    ]
+
+    active_conversation_id = active_conversations.get(
+        assistant_mode
+    )
+
+    if st.button(
+        "New Conversation",
+        use_container_width=True
+    ):
+
+        active_conversations[assistant_mode] = None
+
+        st.session_state[history_key] = []
+
+        st.session_state["zentiq_unsaved_modes"].discard(
+            assistant_mode
+        )
+
+        st.rerun()
+
+    st.subheader("Recent Conversations")
+
+    try:
+
+        saved_conversations = get_conversations(
+            supabase,
+            user_id
+        )
+
+        mode_conversations = [
+            conversation
+            for conversation in saved_conversations
+            if conversation.get("mode") == assistant_mode
+        ]
+
+        for conversation in mode_conversations[:10]:
+
+            conversation_id = conversation["id"]
+
+            conversation_title = conversation.get(
+                "title",
+                "Untitled Conversation"
+            )
+
+            if len(conversation_title) > 32:
+                conversation_title = (
+                    conversation_title[:29] + "..."
+                )
+
+            if st.button(
+                conversation_title,
+                key=f"conversation_{conversation_id}",
+                use_container_width=True
+            ):
+
+                selected_conversation = get_conversation(
+                    supabase,
+                    user_id,
+                    conversation_id
+                )
+
+                if selected_conversation:
+
+                    active_conversations[assistant_mode] = (
+                        conversation_id
+                    )
+
+                    st.session_state[history_key] = (
+                        selected_conversation.get(
+                            "messages",
+                            []
+                        )
+                    )
+
+                    st.session_state["zentiq_unsaved_modes"].discard(
+                        assistant_mode
+                    )
+
+                    st.rerun()
+
+    except Exception:
+
+        st.warning(
+            "Unable to retrieve saved conversations. "
+            "Your current session remains available."
+        )
+
+    st.divider()
+
+    if st.button(
+        "Clear Current Chat",
+        use_container_width=True
+    ):
+
+        st.session_state[history_key] = []
+
+        if active_conversation_id:
+
+            try:
+
+                update_conversation(
+                    client=supabase,
+                    user_id=user_id,
+                    conversation_id=active_conversation_id,
+                    messages=[],
+                    title="Cleared Conversation"
+                )
+
+                st.session_state["zentiq_unsaved_modes"].discard(
+                 (mode)
 
     return result
 
