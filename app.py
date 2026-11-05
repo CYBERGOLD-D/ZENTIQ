@@ -876,3 +876,403 @@ with st.sidebar:
             if conversation.get("mode") == assistant_mode
         ]
 
+    for conversation in mode_conversations[:10]:
+
+            conversation_id = conversation["id"]
+
+            conversation_title = conversation.get(
+                "title",
+                "Untitled Conversation"
+            )
+
+            if len(conversation_title) > 32:
+                conversation_title = (
+                    conversation_title[:29] + "..."
+                )
+
+            if st.button(
+                conversation_title,
+                key=f"conversation_{conversation_id}",
+                use_container_width=True
+            ):
+
+                selected_conversation = get_conversation(
+                    supabase,
+                    user_id,
+                    conversation_id
+                )
+
+                if selected_conversation:
+
+                    active_conversations[assistant_mode] = (
+                        conversation_id
+                    )
+
+                    st.session_state[history_key] = (
+                        selected_conversation.get(
+                            "messages",
+                            []
+                        )
+                    )
+
+                    st.session_state["zentiq_unsaved_modes"].discard(
+                        assistant_mode
+                    )
+
+                    st.rerun()
+
+    except Exception as error:
+
+        st.warning(
+            "Unable to retrieve saved conversations. "
+            f"Database error: {error}"
+        )
+
+    st.divider()
+
+    # RETRY UNSAVED CONVERSATION
+
+    if assistant_mode in st.session_state[
+        "zentiq_unsaved_modes"
+    ]:
+
+        if st.button(
+            "Retry Saving Conversation",
+            use_container_width=True
+        ):
+
+            try:
+
+                persist_conversation(
+                    client=supabase,
+                    authenticated_user_id=user_id,
+                    mode=assistant_mode,
+                    messages=st.session_state[history_key]
+                )
+
+                st.success("Conversation saved successfully.")
+
+                st.rerun()
+
+            except Exception as error:
+
+                st.error(
+                    f"Unable to save conversation: {error}"
+                )
+
+    st.divider()
+
+    # CLEAR CURRENT CHAT
+
+    if st.button(
+        "Clear Current Chat",
+        use_container_width=True
+    ):
+
+        st.session_state[history_key] = []
+
+        if active_conversation_id:
+
+            try:
+
+                update_conversation(
+                    client=supabase,
+                    user_id=user_id,
+                    conversation_id=active_conversation_id,
+                    messages=[],
+                    title="Cleared Conversation"
+                )
+
+                st.session_state["zentiq_unsaved_modes"].discard(
+                    assistant_mode
+                )
+
+                st.success("Conversation cleared successfully.")
+
+            except Exception as error:
+
+                st.session_state["zentiq_unsaved_modes"].add(
+                    assistant_mode
+                )
+
+                st.warning(
+                    "Chat cleared locally, but database update "
+                    f"failed: {error}"
+                )
+
+        st.rerun()
+
+
+# ==================================================
+# 14. DISPLAY CONVERSATION HISTORY
+# ==================================================
+
+messages = st.session_state[history_key]
+
+for message in messages:
+
+    role = message.get("role", "assistant")
+
+    if role not in ("user", "assistant"):
+        continue
+
+    with st.chat_message(role):
+
+        st.markdown(
+            message.get("content", "")
+        )
+
+        if message.get("provider"):
+
+            st.caption(
+                f"AI Provider: {message['provider']}"
+            )
+
+        if message.get("intent"):
+
+            st.caption(
+                f"Predicted Intent: {message['intent']}"
+            )
+
+        if message.get("confidence") is not None:
+
+            st.caption(
+                "Prediction Confidence: "
+                f"{message['confidence']:.2f}%"
+            )
+
+
+# ==================================================
+# 15. CHAT INPUT AND RESPONSE GENERATION
+# ==================================================
+
+if assistant_mode == "ZENTIQ AI Assistant":
+
+    chat_placeholder = "Ask ZENTIQ about your business..."
+
+else:
+
+    chat_placeholder = "Ask your retail support question..."
+
+
+user_question = st.chat_input(chat_placeholder)
+
+
+if user_question:
+
+    user_message = {
+        "role": "user",
+        "content": user_question
+    }
+
+    messages.append(user_message)
+
+    with st.chat_message("user"):
+        st.markdown(user_question)
+
+    assistant_message = None
+
+    # MACHINE LEARNING RETAIL SUPPORT
+
+    if assistant_mode == "Machine Learning Retail Support":
+
+        with st.chat_message("assistant"):
+
+            with st.spinner(
+                "Analysing your retail support question..."
+            ):
+
+                try:
+
+                    predicted_intent, response, confidence = (
+                        predict_customer_query(user_question)
+                    )
+
+                    st.markdown(response)
+
+                    st.caption(
+                        f"Predicted Intent: {predicted_intent}"
+                    )
+
+                    st.caption(
+                        f"Prediction Confidence: {confidence:.2f}%"
+                    )
+
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": response,
+                        "intent": str(predicted_intent),
+                        "confidence": float(confidence)
+                    }
+
+                except Exception as error:
+
+                    response = (
+                        "ZENTIQ encountered an error while "
+                        "processing your retail support question."
+                    )
+
+                    st.error(response)
+                    st.caption(str(error))
+
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": response
+                    }
+
+    # HYBRID AI BUSINESS ASSISTANT
+
+    else:
+
+        with st.chat_message("assistant"):
+
+            with st.spinner(
+                "ZENTIQ is preparing your response..."
+            ):
+
+                try:
+
+                    llm = load_llm_service()
+
+                    response = llm.generate_response(
+                        prompt=user_question,
+                        task="general",
+                        template_name=template_name,
+                        temperature=0.3
+                    )
+
+                    provider = (
+                        getattr(
+                            llm.model_manager,
+                            "active_provider",
+                            None
+                        )
+                        or "Hybrid AI"
+                    )
+
+                    st.markdown(response)
+
+                    st.caption(
+                        f"AI Provider: {provider}"
+                    )
+
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": response,
+                        "provider": provider
+                    }
+
+                except Exception as error:
+
+                    response = (
+                        "ZENTIQ could not generate a response. "
+                        "Please try again shortly."
+                    )
+
+                    st.error(response)
+
+                    st.caption(
+                        "Please check the AI provider and "
+                        "safety service configuration."
+                    )
+
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": response
+                    }
+
+    # UPDATE CONVERSATION HISTORY
+
+    if assistant_message:
+
+        messages.append(assistant_message)
+
+        st.session_state[history_key] = messages
+
+    # SAVE CONVERSATION
+
+    try:
+
+        persist_conversation(
+            client=supabase,
+            authenticated_user_id=user_id,
+            mode=assistant_mode,
+            messages=messages
+        )
+
+    except Exception as error:
+
+        st.session_state["zentiq_unsaved_modes"].add(
+            assistant_mode
+        )
+
+        st.warning(
+            "Your response is available in this session, "
+            "but automatic saving failed. Use "
+            "'Retry Saving Conversation' in the sidebar."
+        )
+
+        st.caption(
+            f"Database saving error: {error}"
+        )
+
+    st.rerun()
+
+
+# ==================================================
+# 16. PDF CONVERSATION EXPORT
+# ==================================================
+
+current_messages = st.session_state[history_key]
+
+if current_messages:
+
+    st.divider()
+
+    st.subheader("Export Conversation")
+
+    try:
+
+        pdf_file = build_conversation_pdf(
+            current_messages,
+            assistant_mode
+        )
+
+        st.download_button(
+            label="📄 Download Conversation as PDF",
+            data=pdf_file,
+            file_name=(
+                "ZENTIQ_Conversation_"
+                + datetime.now().strftime("%Y%m%d_%H%M%S")
+                + ".pdf"
+            ),
+            mime="application/pdf",
+            use_container_width=True
+        )
+
+    except Exception as error:
+
+        st.error(
+            "Unable to generate the PDF document."
+        )
+
+        st.caption(str(error))
+
+
+# ==================================================
+# 17. APPLICATION FOOTER
+# ==================================================
+
+st.divider()
+
+st.caption(
+    "ZENTIQ — Intelligent Business Assistant"
+)
+
+st.caption(
+    "Developed by EverMark Creative Solutions."
+)
+
+st.caption(
+    "Intelligence that empowers business."
+    )
