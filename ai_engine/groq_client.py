@@ -14,10 +14,16 @@ class GroqClient:
     def __init__(self, timeout=120):
         try:
             api_key = st.secrets["GROQ_API_KEY"]
-        except (KeyError, FileNotFoundError):
+        except (KeyError, FileNotFoundError) as error:
             raise ValueError(
                 "GROQ_API_KEY is missing. "
                 "Please configure it in Streamlit Secrets."
+            ) from error
+
+        if not api_key or not str(api_key).strip():
+            raise ValueError(
+                "GROQ_API_KEY is empty. "
+                "Please check your Streamlit Secrets."
             )
 
         self.client = Groq(
@@ -38,6 +44,7 @@ class GroqClient:
         try:
             models = self.client.models.list()
             return [model.id for model in models.data]
+
         except Exception as error:
             raise ConnectionError(
                 f"Could not retrieve Groq models: {error}"
@@ -46,7 +53,7 @@ class GroqClient:
     def generate(
         self,
         prompt,
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-20b",
         system_prompt=None,
         temperature=0.3
     ):
@@ -75,12 +82,21 @@ class GroqClient:
                 temperature=temperature
             )
 
-            return (
-                response.choices[0].message.content or ""
-            ).strip()
+            if not response.choices:
+                raise ValueError(
+                    "Groq returned no response choices."
+                )
+
+            content = response.choices[0].message.content
+
+            if not content or not content.strip():
+                raise ValueError(
+                    "Groq returned an empty response."
+                )
+
+            return content.strip()
 
         except Exception as error:
             raise ConnectionError(
                 f"Groq generation failed: {error}"
             ) from error
-              
