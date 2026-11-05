@@ -161,4 +161,3 @@ def logout_authenticated_user(client):
         )
 
     return True, "You have been signed out successfully."
-      
