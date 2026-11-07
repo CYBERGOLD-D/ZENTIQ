@@ -1,3 +1,4 @@
+
 """
 ZENTIQ - Hybrid LLM Service
 
@@ -216,6 +217,9 @@ class LLMService:
     ):
         """Generate a response with safety checks and fallback."""
 
+        # Reset provider status for every new request.
+        self.model_manager.active_provider = None
+
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Prompt cannot be empty.")
 
@@ -297,8 +301,9 @@ class LLMService:
                 break
 
             except Exception as error:
+                # Avoid exposing raw provider exception details.
                 provider_errors.append(
-                    f"{provider}: {error}"
+                    f"{provider}: {type(error).__name__}"
                 )
 
         if response is None:
@@ -306,7 +311,7 @@ class LLMService:
 
             raise ConnectionError(
                 "All conversational AI providers failed. "
-                f"Details: {error_summary}"
+                f"Provider errors: {error_summary}"
             )
 
         # --------------------------------------------------
@@ -338,4 +343,3 @@ class LLMService:
         self.model_manager.active_provider = active_provider
 
         return response
-        
