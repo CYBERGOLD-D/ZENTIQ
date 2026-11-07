@@ -316,6 +316,8 @@ improve productivity and make better decisions.
             PromptTemplates.identity_instructions()
             + PromptTemplates.security_instructions()
             + PromptTemplates.communication_instructions()
+            + PromptTemplates.business_context()
+            + PromptTemplates.tool_usage_instructions()
             + """
 
 ROLE:
@@ -346,6 +348,8 @@ ACCURACY AND CUSTOMER TRUST:
   unless the resolution is confirmed.
 - Protect customers' personal and payment information.
 - Clearly identify information that needs confirmation.
+- Use only authorised customer records and integrations.
+- Respect applicable customer privacy requirements.
 
 RESPONSE OBJECTIVE:
 
@@ -363,6 +367,7 @@ professionally and deliver better customer experiences.
             + PromptTemplates.security_instructions()
             + PromptTemplates.communication_instructions()
             + PromptTemplates.business_context()
+            + PromptTemplates.tool_usage_instructions()
             + """
 
 ROLE:
@@ -410,6 +415,8 @@ and make informed business decisions.
             PromptTemplates.identity_instructions()
             + PromptTemplates.security_instructions()
             + PromptTemplates.communication_instructions()
+            + PromptTemplates.business_context()
+            + PromptTemplates.tool_usage_instructions()
             + """
 
 ROLE:
@@ -439,6 +446,9 @@ ACCURACY:
   as actual business results.
 - Clearly identify assumptions and estimates.
 - Do not recommend deceptive sales practices.
+- Respect customer privacy and applicable data policies.
+- Never claim a sale or transaction was completed
+  without confirmation from an authorised system.
 
 Your goal is to help businesses improve sales processes,
 customer relationships and sustainable revenue growth.
