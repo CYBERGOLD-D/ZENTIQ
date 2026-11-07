@@ -4,10 +4,12 @@ ZENTIQ - Hybrid Model Manager
 PRODUCTION:
     Primary: Cloudflare Workers AI (Gemma 4)
     Fallback: Groq Cloud
+    Safety: Cloudflare Llama Guard 3 8B
 
 LOCAL DEVELOPMENT:
     Primary: Ollama (Llama 3.2:1B)
     Fallback: Groq Cloud
+    Safety: Local Llama Guard 3:1B
 
 Developed by EverMark Creative Solutions.
 """
@@ -28,29 +30,44 @@ class ModelManager:
         ollama_client=None,
         cloudflare_client=None
     ):
-        self.cloudflare_enabled = self._has_cloudflare_secrets()
+        # Recognise either configured credentials or an
+        # explicitly supplied Cloudflare client.
+        self.cloudflare_enabled = (
+            cloudflare_client is not None
+            or self._has_cloudflare_secrets()
+        )
 
         self.cloudflare_client = cloudflare_client
         self.cloudflare_error = None
 
-        if self.cloudflare_enabled and self.cloudflare_client is None:
+        if (
+            self.cloudflare_enabled
+            and self.cloudflare_client is None
+        ):
             try:
                 self.cloudflare_client = CloudflareClient()
+
             except Exception as error:
                 self.cloudflare_error = error
 
+        # Initialize Groq as the conversational fallback.
         self.groq_client = groq_client
 
         if self.groq_client is None:
             try:
                 self.groq_client = GroqClient()
+
             except Exception:
                 self.groq_client = None
 
+        # Keep Ollama available for local development.
         self.ollama_client = (
-            ollama_client or OllamaClient()
+            ollama_client
+            if ollama_client is not None
+            else OllamaClient()
         )
 
+        # Configured conversational models.
         self.cloudflare_model = (
             "@cf/google/gemma-4-26b-a4b-it"
         )
@@ -61,11 +78,18 @@ class ModelManager:
 
         self.active_provider = None
 
+        # Safety provider follows the selected environment.
+        # Do not silently downgrade production safety to
+        # local Ollama if Cloudflare initialization fails.
         self.safety_provider = (
             "cloudflare"
             if self.cloudflare_enabled
             else "ollama"
         )
+
+    # --------------------------------------------------
+    # 1. CLOUDFLARE CONFIGURATION
+    # --------------------------------------------------
 
     @staticmethod
     def _has_cloudflare_secrets():
@@ -90,8 +114,12 @@ class ModelManager:
         except Exception:
             return False
 
+    # --------------------------------------------------
+    # 2. PROVIDER PRIORITY
+    # --------------------------------------------------
+
     def get_provider_order(self):
-        """Return providers in priority order."""
+        """Return conversational providers in priority order."""
 
         if self.cloudflare_enabled:
             return ["cloudflare", "groq"]
@@ -109,6 +137,10 @@ class ModelManager:
             )
 
         return providers[0]
+
+    # --------------------------------------------------
+    # 3. MODEL SELECTION
+    # --------------------------------------------------
 
     def select_model(self, task="general", provider=None):
         """Select the model associated with a provider."""
@@ -130,6 +162,10 @@ class ModelManager:
         raise ValueError(
             f"Unknown AI provider: {provider}"
         )
+
+    # --------------------------------------------------
+    # 4. AVAILABLE MODEL DISCOVERY
+    # --------------------------------------------------
 
     def get_available_models(self, provider=None):
         """List models available through a provider."""
@@ -153,9 +189,13 @@ class ModelManager:
             return self.groq_client.list_models()
 
         if provider == "ollama":
+            if self.ollama_client is None:
+                raise ConnectionError(
+                    "Ollama client is unavailable."
+                )
+
             return self.ollama_client.list_models()
 
         raise ValueError(
             f"Unknown AI provider: {provider}"
         )
-        
