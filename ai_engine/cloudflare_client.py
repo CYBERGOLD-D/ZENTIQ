@@ -1,4 +1,3 @@
-
 """
 ZENTIQ - Cloudflare Workers AI Client
 
