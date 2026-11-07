@@ -1,18 +1,27 @@
 
 """
-ZENTIQ - Llama Guard Safety Module
+ZENTIQ - Hybrid Llama Guard Safety Module
 
-Uses Llama Guard 3:1B through Ollama to screen
-incoming user messages and outgoing AI responses.
+Production:
+    Cloudflare Llama Guard 3 8B
+
+Local development:
+    Ollama Llama Guard 3 1B
+
+Screens incoming user messages and outgoing AI responses.
+Fails closed whenever safety screening is unavailable.
 
 Developed by EverMark Creative Solutions.
 """
 
+import streamlit as st
+
 from ai_engine.ollama_client import OllamaClient
+from ai_engine.cloudflare_client import CloudflareClient
 
 
 class LlamaGuard:
-    """Safety classifier for ZENTIQ conversations."""
+    """Hybrid safety classifier for ZENTIQ conversations."""
 
     SAFETY_CATEGORIES = """
 S1: Violent Crimes.
@@ -37,37 +46,115 @@ S13: Elections.
     def __init__(
         self,
         ollama_client=None,
-        guard_model="llama-guard3:1b"
+        guard_model="llama-guard3:1b",
+        cloudflare_client=None,
+        provider=None
     ):
-        self.ollama_client = ollama_client or OllamaClient()
-        self.guard_model = guard_model
+        self.ollama_client = (
+            ollama_client or OllamaClient()
+        )
 
-    def check_connection(self):
-        """Check whether Ollama and the guard model are available."""
+        self.cloudflare_client = cloudflare_client
+        self.guard_model = guard_model
+        self.provider = provider or self._get_provider()
+
+        if self.provider == "cloudflare":
+            self.cloudflare_client = (
+                self.cloudflare_client or CloudflareClient()
+            )
+
+        elif self.provider == "ollama":
+            pass
+
+        else:
+            raise ValueError(
+                f"Unsupported safety provider: {self.provider}"
+            )
+
+    @staticmethod
+    def _get_provider():
+        """Determine the safety provider from the environment."""
 
         try:
-            if not self.ollama_client.check_connection():
-                return False
+            if st.secrets.get("CLOUDFLARE_ACCOUNT_ID") and (
+                st.secrets.get("CLOUDFLARE_API_TOKEN")
+            ):
+                return "cloudflare"
+        except Exception:
+            pass
 
-            models = self.ollama_client.list_models()
+        return "ollama"
 
-            return any(
-                model == self.guard_model
-                or model.startswith(self.guard_model + "-")
-                for model in models
-            )
+    def check_connection(self):
+        """Check whether the configured safety provider is available."""
+
+        try:
+            if self.provider == "cloudflare":
+                if self.cloudflare_client is None:
+                    return False
+
+                # Verify credentials and API access using
+                # an actual safety-model request.
+                result = self.cloudflare_client.check_safety([
+                    {
+                        "role": "user",
+                        "content": "Hello."
+                    }
+                ])
+
+                return isinstance(result, str) and bool(result.strip())
+
+            if self.provider == "ollama":
+                if not self.ollama_client.check_connection():
+                    return False
+
+                models = self.ollama_client.list_models()
+
+                return any(
+                    model == self.guard_model
+                    or model.startswith(self.guard_model + "-")
+                    for model in models
+                )
 
         except Exception:
             return False
+
+        return False
+
+    def _build_messages(
+        self,
+        user_message,
+        assistant_response=None
+    ):
+        """Build conversation messages for Llama Guard."""
+
+        messages = [
+            {
+                "role": "user",
+                "content": user_message
+            }
+        ]
+
+        if assistant_response is not None:
+            messages.append({
+                "role": "assistant",
+                "content": assistant_response
+            })
+
+        return messages
 
     def _build_prompt(
         self,
         user_message,
         assistant_response=None
     ):
-        """Build a Llama Guard 3 classification prompt."""
+        """Build a local Ollama Llama Guard prompt."""
 
-        role = "User" if assistant_response is None else "Agent"
+        role = (
+            "User"
+            if assistant_response is None
+            else "Agent"
+        )
 
         conversation = f"User: {user_message}"
 
@@ -98,12 +185,71 @@ message in the above conversation.
   comma-separated list of violated categories.
 """
 
+    def _parse_result(self, result):
+        """Validate and parse a Llama Guard classification."""
+
+        if not isinstance(result, str) or not result.strip():
+            raise ValueError(
+                "Llama Guard returned an empty result."
+            )
+
+        lines = [
+            line.strip()
+            for line in result.strip().splitlines()
+            if line.strip()
+        ]
+
+        first_line = lines[0].lower()
+
+        if first_line == "safe":
+            return {
+                "safe": True,
+                "label": "safe",
+                "reason": (
+                    "Content passed Llama Guard screening."
+                )
+            }
+
+        if first_line == "unsafe":
+
+            if len(lines) < 2:
+                raise ValueError(
+                    "Unsafe classification has no category."
+                )
+
+            categories = {
+                category.strip().upper()
+                for category in lines[1].split(",")
+                if category.strip()
+            }
+
+            if (
+                not categories
+                or not categories.issubset(
+                    self.VALID_CATEGORIES
+                )
+            ):
+                raise ValueError(
+                    "Llama Guard returned invalid safety categories."
+                )
+
+            return {
+                "safe": False,
+                "label": "unsafe",
+                "categories": sorted(categories),
+                "reason": result.strip()
+            }
+
+        raise ValueError(
+            f"Unexpected Llama Guard response: {result}"
+        )
+
     def _classify(
         self,
         user_message,
         assistant_response=None
     ):
-        """Classify a user message or assistant response."""
+        """Classify user input or an AI response."""
 
         if (
             not isinstance(user_message, str)
@@ -126,77 +272,37 @@ message in the above conversation.
                     "reason": "A valid assistant response is required."
                 }
 
-        if not self.check_connection():
-            return {
-                "safe": False,
-                "label": "error",
-                "reason": "Llama Guard or its model is unavailable."
-            }
-
-        guard_prompt = self._build_prompt(
-            user_message=user_message,
-            assistant_response=assistant_response
-        )
-
         try:
-            result = self.ollama_client.generate(
-                prompt=guard_prompt,
-                model=self.guard_model,
-                temperature=0.0
-            )
+            if self.provider == "cloudflare":
 
-            if not isinstance(result, str) or not result.strip():
-                raise ValueError(
-                    "Llama Guard returned an empty result."
+                messages = self._build_messages(
+                    user_message=user_message,
+                    assistant_response=assistant_response
                 )
 
-            lines = [
-                line.strip()
-                for line in result.strip().splitlines()
-                if line.strip()
-            ]
+                result = self.cloudflare_client.check_safety(
+                    messages
+                )
 
-            first_line = lines[0].lower()
+            else:
 
-            if first_line == "safe":
-                return {
-                    "safe": True,
-                    "label": "safe",
-                    "reason": "Content passed Llama Guard screening."
-                }
-
-            if first_line == "unsafe":
-
-                if len(lines) < 2:
-                    raise ValueError(
-                        "Unsafe classification has no category."
+                if not self.check_connection():
+                    raise ConnectionError(
+                        "Local Llama Guard is unavailable."
                     )
 
-                categories = {
-                    category.strip().upper()
-                    for category in lines[1].split(",")
-                }
+                guard_prompt = self._build_prompt(
+                    user_message=user_message,
+                    assistant_response=assistant_response
+                )
 
-                if (
-                    not categories
-                    or not categories.issubset(
-                        self.VALID_CATEGORIES
-                    )
-                ):
-                    raise ValueError(
-                        "Llama Guard returned invalid safety categories."
-                    )
+                result = self.ollama_client.generate(
+                    prompt=guard_prompt,
+                    model=self.guard_model,
+                    temperature=0.0
+                )
 
-                return {
-                    "safe": False,
-                    "label": "unsafe",
-                    "categories": sorted(categories),
-                    "reason": result.strip()
-                }
-
-            raise ValueError(
-                f"Unexpected Llama Guard response: {result}"
-            )
+            return self._parse_result(result)
 
         except Exception as error:
             return {
@@ -217,7 +323,7 @@ message in the above conversation.
         assistant_response,
         user_message=None
     ):
-        """Screen an AI response using its original user question."""
+        """Screen an AI response using its original question."""
 
         if not user_message:
             user_message = (
