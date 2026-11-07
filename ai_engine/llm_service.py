@@ -62,6 +62,10 @@ class LLMService:
             provider=self.model_manager.safety_provider
         )
 
+    # --------------------------------------------------
+    # 1. SYSTEM PROMPTS
+    # --------------------------------------------------
+
     def get_system_prompt(self, template_name="general"):
         """Load the requested ZENTIQ system prompt."""
 
@@ -78,6 +82,10 @@ class LLMService:
             )
 
         return templates[template_name]()
+
+    # --------------------------------------------------
+    # 2. AI PROVIDER GENERATION
+    # --------------------------------------------------
 
     def _generate_with_provider(
         self,
@@ -116,6 +124,11 @@ class LLMService:
             )
 
         if provider == "ollama":
+            if self.ollama_client is None:
+                raise ConnectionError(
+                    "Ollama client is unavailable."
+                )
+
             return self.ollama_client.generate(
                 prompt=prompt,
                 model=model,
@@ -126,6 +139,10 @@ class LLMService:
         raise ValueError(
             f"Unsupported AI provider: {provider}"
         )
+
+    # --------------------------------------------------
+    # 3. CENTRAL SAFETY SCREENING
+    # --------------------------------------------------
 
     def _check_safety(
         self,
@@ -156,6 +173,39 @@ class LLMService:
 
         return result.get("safe") is True
 
+    # --------------------------------------------------
+    # 4. PUBLIC INPUT SAFETY CHECK
+    # --------------------------------------------------
+
+    def check_input_safety(self, content):
+        """Public safety check for incoming user messages."""
+
+        return self._check_safety(
+            content,
+            stage="input"
+        )
+
+    # --------------------------------------------------
+    # 5. PUBLIC OUTPUT SAFETY CHECK
+    # --------------------------------------------------
+
+    def check_output_safety(
+        self,
+        content,
+        user_message=None
+    ):
+        """Public safety check for outgoing responses."""
+
+        return self._check_safety(
+            content,
+            stage="output",
+            user_message=user_message
+        )
+
+    # --------------------------------------------------
+    # 6. MAIN AI RESPONSE GENERATION
+    # --------------------------------------------------
+
     def generate_response(
         self,
         prompt,
@@ -175,14 +225,11 @@ class LLMService:
             )
 
         # --------------------------------------------------
-        # 1. SCREEN THE INCOMING USER MESSAGE
+        # STEP 1: SCREEN THE INCOMING USER MESSAGE
         # --------------------------------------------------
 
         try:
-            input_safe = self._check_safety(
-                prompt,
-                stage="input"
-            )
+            input_safe = self.check_input_safety(prompt)
 
         except Exception as error:
             raise RuntimeError(
@@ -197,7 +244,7 @@ class LLMService:
             )
 
         # --------------------------------------------------
-        # 2. GET THE PROVIDER PRIORITY ORDER
+        # STEP 2: GET THE PROVIDER PRIORITY ORDER
         # --------------------------------------------------
 
         try:
@@ -214,7 +261,7 @@ class LLMService:
             )
 
         # --------------------------------------------------
-        # 3. GENERATE WITH AUTOMATIC PROVIDER FALLBACK
+        # STEP 3: GENERATE WITH AUTOMATIC PROVIDER FALLBACK
         # --------------------------------------------------
 
         response = None
@@ -246,6 +293,7 @@ class LLMService:
 
                 response = candidate.strip()
                 active_provider = provider
+
                 break
 
             except Exception as error:
@@ -262,13 +310,12 @@ class LLMService:
             )
 
         # --------------------------------------------------
-        # 4. SCREEN THE GENERATED AI RESPONSE
+        # STEP 4: SCREEN THE GENERATED AI RESPONSE
         # --------------------------------------------------
 
         try:
-            output_safe = self._check_safety(
+            output_safe = self.check_output_safety(
                 response,
-                stage="output",
                 user_message=prompt
             )
 
@@ -285,9 +332,10 @@ class LLMService:
             )
 
         # --------------------------------------------------
-        # 5. RECORD THE PROVIDER THAT SUCCEEDED
+        # STEP 5: RECORD THE SUCCESSFUL PROVIDER
         # --------------------------------------------------
 
         self.model_manager.active_provider = active_provider
 
         return response
+        
