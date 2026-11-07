@@ -1,15 +1,18 @@
-
 """
 ZENTIQ - Hybrid LLM Service
 
-Primary conversational provider: Ollama
-Primary conversational model: Llama 3.2:1B
+Production:
+    Primary conversational provider: Cloudflare Gemma 4
+    Fallback conversational provider: Groq Cloud
+    Safety provider: Cloudflare Llama Guard 3 8B
 
-Safety model: Llama Guard 3:1B
-Secondary conversational provider: Groq Cloud
+Local development:
+    Primary conversational provider: Ollama Llama 3.2:1B
+    Fallback conversational provider: Groq Cloud
+    Safety provider: Local Ollama Llama Guard 3:1B
 
 All incoming messages and generated responses
-are screened through Llama Guard.
+are screened before processing or release.
 
 Developed by EverMark Creative Solutions.
 """
@@ -27,26 +30,41 @@ class LLMService:
         model_manager=None,
         groq_client=None,
         ollama_client=None,
+        cloudflare_client=None,
         safety_guard=None
     ):
-        # Maintain compatibility with the previous client setup.
+        # Preserve compatibility with the previous client argument.
         if client is not None and ollama_client is None:
             ollama_client = client
 
         self.model_manager = model_manager or ModelManager(
             groq_client=groq_client,
-            ollama_client=ollama_client
+            ollama_client=ollama_client,
+            cloudflare_client=cloudflare_client
         )
 
         self.groq_client = self.model_manager.groq_client
         self.ollama_client = self.model_manager.ollama_client
 
+        self.cloudflare_client = getattr(
+            self.model_manager,
+            "cloudflare_client",
+            None
+        )
+
         self.prompt_templates = PromptTemplates()
 
-        # Use the same Ollama connection for Llama Guard.
+        safety_provider = getattr(
+            self.model_manager,
+            "safety_provider",
+            None
+        )
+
         self.safety_guard = safety_guard or LlamaGuard(
             ollama_client=self.ollama_client,
-            guard_model=self.model_manager.guard_model
+            guard_model=self.model_manager.guard_model,
+            cloudflare_client=self.cloudflare_client,
+            provider=safety_provider
         )
 
     def get_system_prompt(self, template_name="general"):
@@ -76,8 +94,13 @@ class LLMService:
     ):
         """Generate a response using the specified provider."""
 
-        if provider == "ollama":
-            return self.ollama_client.generate(
+        if provider == "cloudflare":
+            if self.cloudflare_client is None:
+                raise ConnectionError(
+                    "Cloudflare client is unavailable."
+                )
+
+            return self.cloudflare_client.generate(
                 prompt=prompt,
                 model=model,
                 system_prompt=system_prompt,
@@ -85,7 +108,20 @@ class LLMService:
             )
 
         if provider == "groq":
+            if self.groq_client is None:
+                raise ConnectionError(
+                    "Groq client is unavailable."
+                )
+
             return self.groq_client.generate(
+                prompt=prompt,
+                model=model,
+                system_prompt=system_prompt,
+                temperature=temperature
+            )
+
+        if provider == "ollama":
+            return self.ollama_client.generate(
                 prompt=prompt,
                 model=model,
                 system_prompt=system_prompt,
@@ -102,7 +138,7 @@ class LLMService:
         stage,
         user_message=None
     ):
-        """Screen content using Llama Guard."""
+        """Screen content using the configured Llama Guard."""
 
         if stage == "input":
             result = self.safety_guard.check_input(content)
@@ -137,12 +173,8 @@ class LLMService:
         template_name="general"
     ):
         """
-        Generate a response using Ollama first and Groq
-        as fallback.
-
-        Screen the user's message before generation and
-        the AI response with the original question before
-        returning it.
+        Screen user input, generate using the preferred provider,
+        attempt fallback if needed, and screen the final response.
         """
 
         if not isinstance(prompt, str) or not prompt.strip():
@@ -151,9 +183,9 @@ class LLMService:
         if system_prompt is None:
             system_prompt = self.get_system_prompt(template_name)
 
-        # ------------------------------------------------
+        # -----------------------------------------------
         # STAGE 1: SCREEN USER INPUT
-        # ------------------------------------------------
+        # -----------------------------------------------
 
         try:
             input_safe = self._check_safety(
@@ -169,118 +201,80 @@ class LLMService:
 
         if not input_safe:
             return (
-                "I’m sorry, but I cannot process this request "
+                "I'm sorry, but I cannot process this request "
                 "because it did not pass ZENTIQ's safety checks."
             )
 
-        # ------------------------------------------------
-        # STAGE 2: SELECT CONVERSATIONAL PROVIDER
-        # ------------------------------------------------
+        # -----------------------------------------------
+        # STAGE 2: GET PROVIDER PRIORITY
+        # -----------------------------------------------
 
         try:
-            provider = self.model_manager.select_provider()
+            providers = self.model_manager.get_provider_order()
 
         except Exception as error:
             raise ConnectionError(
-                "Neither Ollama nor Groq is currently available."
+                "ZENTIQ could not determine the available "
+                "AI provider order."
             ) from error
 
-        # ------------------------------------------------
-        # STAGE 3: GENERATE RESPONSE
-        # ------------------------------------------------
-
-        if provider == "ollama":
-
-            model = self.model_manager.select_model(
-                task=task,
-                provider="ollama"
+        if not providers:
+            raise ConnectionError(
+                "No conversational AI provider is configured."
             )
 
+        # -----------------------------------------------
+        # STAGE 3: GENERATE WITH PRIMARY / FALLBACK
+        # -----------------------------------------------
+
+        response = None
+        active_provider = None
+        provider_errors = []
+
+        for provider in providers:
+
             try:
-                response = self._generate_with_provider(
-                    provider="ollama",
+                model = self.model_manager.select_model(
+                    task=task,
+                    provider=provider
+                )
+
+                candidate = self._generate_with_provider(
+                    provider=provider,
                     prompt=prompt,
                     model=model,
                     system_prompt=system_prompt,
                     temperature=temperature
                 )
 
-                active_provider = "ollama"
-
-            except Exception as ollama_error:
-
-                # Ollama failed. Attempt Groq fallback.
-                try:
-                    if (
-                        self.groq_client is None
-                        or not self.groq_client.check_connection()
-                    ):
-                        raise ConnectionError(
-                            "Groq is unavailable."
-                        )
-
-                    fallback_model = self.model_manager.select_model(
-                        task=task,
-                        provider="groq"
+                if (
+                    not isinstance(candidate, str)
+                    or not candidate.strip()
+                ):
+                    raise ValueError(
+                        f"{provider} returned an empty response."
                     )
 
-                    response = self._generate_with_provider(
-                        provider="groq",
-                        prompt=prompt,
-                        model=fallback_model,
-                        system_prompt=system_prompt,
-                        temperature=temperature
-                    )
-
-                    active_provider = "groq"
-
-                except Exception as groq_error:
-                    raise ConnectionError(
-                        "Both conversational providers failed. "
-                        f"Ollama error: {ollama_error}. "
-                        f"Groq error: {groq_error}."
-                    ) from groq_error
-
-        elif provider == "groq":
-
-            model = self.model_manager.select_model(
-                task=task,
-                provider="groq"
-            )
-
-            try:
-                response = self._generate_with_provider(
-                    provider="groq",
-                    prompt=prompt,
-                    model=model,
-                    system_prompt=system_prompt,
-                    temperature=temperature
-                )
-
-                active_provider = "groq"
+                response = candidate.strip()
+                active_provider = provider
+                break
 
             except Exception as error:
-                raise ConnectionError(
-                    f"Groq generation failed: {error}"
-                ) from error
+                provider_errors.append(
+                    f"{provider}: {error}"
+                )
 
-        else:
+        if response is None:
+            error_summary = " | ".join(provider_errors)
+
             raise ConnectionError(
-                "No supported conversational provider is available."
+                "All conversational AI providers failed. "
+                f"Details: {error_summary}"
             )
 
-        # ------------------------------------------------
-        # STAGE 4: VALIDATE GENERATED RESPONSE
-        # ------------------------------------------------
-
-        if not isinstance(response, str) or not response.strip():
-            raise RuntimeError(
-                "The AI provider returned an empty response."
-            )
-
-        # ------------------------------------------------
-        # STAGE 5: CONTEXT-AWARE OUTPUT SAFETY SCREENING
-        # ------------------------------------------------
+        # -----------------------------------------------
+        # STAGE 4: SCREEN GENERATED RESPONSE
+        # -----------------------------------------------
 
         try:
             output_safe = self._check_safety(
@@ -301,7 +295,11 @@ class LLMService:
                 "the safety checks. The response has been withheld."
             )
 
-        # Record the provider that generated the approved response.
+        # -----------------------------------------------
+        # STAGE 5: RECORD ACTIVE PROVIDER
+        # -----------------------------------------------
+
         self.model_manager.active_provider = active_provider
 
         return response
+                    
