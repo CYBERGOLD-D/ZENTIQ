@@ -1,14 +1,15 @@
+
 """
 ZENTIQ - Cloudflare Workers AI Client
 
 Provides hosted AI generation and safety classification
 through Cloudflare Workers AI.
 
-Conversational model:
-@cf/google/gemma-4-26b-a4b-it
+Production conversational model:
+    @cf/google/gemma-4-26b-a4b-it
 
-Safety model:
-@cf/meta/llama-guard-3-8b
+Production safety model:
+    @cf/meta/llama-guard-3-8b
 
 Developed by EverMark Creative Solutions.
 """
@@ -18,7 +19,7 @@ import streamlit as st
 
 
 class CloudflareClient:
-    """Client for Cloudflare Workers AI."""
+    """Client for communicating with Cloudflare Workers AI."""
 
     BASE_URL = "https://api.cloudflare.com/client/v4/accounts"
 
@@ -29,8 +30,12 @@ class CloudflareClient:
         self.timeout = timeout
 
         try:
-            self.account_id = st.secrets["CLOUDFLARE_ACCOUNT_ID"]
-            self.api_token = st.secrets["CLOUDFLARE_API_TOKEN"]
+            self.account_id = st.secrets[
+                "CLOUDFLARE_ACCOUNT_ID"
+            ]
+            self.api_token = st.secrets[
+                "CLOUDFLARE_API_TOKEN"
+            ]
 
         except (KeyError, FileNotFoundError) as error:
             raise ValueError(
@@ -39,20 +44,32 @@ class CloudflareClient:
                 "CLOUDFLARE_API_TOKEN in Streamlit Secrets."
             ) from error
 
-        if not str(self.account_id).strip():
+        self.account_id = str(self.account_id).strip()
+        self.api_token = str(self.api_token).strip()
+
+        if not self.account_id:
             raise ValueError("Cloudflare Account ID is empty.")
 
-        if not str(self.api_token).strip():
+        if not self.api_token:
             raise ValueError("Cloudflare API token is empty.")
 
         self.session = requests.Session()
         self.session.headers.update({
             "Authorization": f"Bearer {self.api_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Accept": "application/json"
         })
 
     def _run_model(self, model, payload):
-        """Send a request to a Cloudflare Workers AI model."""
+        """Execute a Cloudflare Workers AI model request."""
+
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError("A valid Cloudflare model ID is required.")
+
+        if not isinstance(payload, dict):
+            raise ValueError(
+                "Cloudflare request payload must be a dictionary."
+            )
 
         url = (
             f"{self.BASE_URL}/{self.account_id}"
@@ -67,45 +84,73 @@ class CloudflareClient:
             )
 
             response.raise_for_status()
-            data = response.json()
+
+            try:
+                data = response.json()
+            except ValueError as error:
+                raise ValueError(
+                    "Cloudflare returned invalid JSON."
+                ) from error
 
             if not isinstance(data, dict):
                 raise ValueError(
-                    "Cloudflare returned an invalid response."
+                    "Cloudflare returned an invalid response structure."
                 )
 
-            if data.get("success") is False:
+            if data.get("success") is not True:
                 raise RuntimeError(
-                    f"Cloudflare API error: {data.get('errors', [])}"
+                    f"Cloudflare API request was unsuccessful: "
+                    f"{data.get('errors', [])}"
                 )
 
             result = data.get("result")
 
             if not isinstance(result, dict):
                 raise ValueError(
-                    "Cloudflare response has no valid result."
+                    "Cloudflare response contains no valid result object."
                 )
 
             return result
 
-        except requests.RequestException as error:
+        except requests.Timeout as error:
             raise ConnectionError(
-                f"Cloudflare request failed: {error}"
+                "Cloudflare request timed out."
             ) from error
 
-    def check_connection(self):
-        """Check whether the conversational model is available."""
-
-        try:
-            self.generate(
-                prompt="Reply with the word READY.",
-                model=self.CHAT_MODEL,
-                temperature=0.0
+        except requests.HTTPError as error:
+            status = (
+                error.response.status_code
+                if error.response is not None
+                else "unknown"
             )
-            return True
+            raise ConnectionError(
+                f"Cloudflare HTTP request failed (status {status})."
+            ) from error
 
-        except Exception:
-            return False
+        except requests.RequestException as error:
+            raise ConnectionError(
+                f"Unable to communicate with Cloudflare: {error}"
+            ) from error
+
+    @staticmethod
+    def _extract_text(result, model_name):
+        """Extract and validate generated text."""
+
+        response = result.get("response")
+
+        if not isinstance(response, str):
+            raise ValueError(
+                f"{model_name} returned an invalid response format."
+            )
+
+        response = response.strip()
+
+        if not response:
+            raise ValueError(
+                f"{model_name} returned an empty response."
+            )
+
+        return response
 
     def generate(
         self,
@@ -119,6 +164,15 @@ class CloudflareClient:
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Prompt cannot be empty.")
 
+        if (
+            isinstance(temperature, bool)
+            or not isinstance(temperature, (int, float))
+            or not 0 <= temperature <= 2
+        ):
+            raise ValueError(
+                "Temperature must be a number between 0 and 2."
+            )
+
         model = model or self.CHAT_MODEL
 
         messages = []
@@ -126,59 +180,107 @@ class CloudflareClient:
         if system_prompt:
             messages.append({
                 "role": "system",
-                "content": system_prompt
+                "content": str(system_prompt)
             })
 
         messages.append({
             "role": "user",
-            "content": prompt
+            "content": prompt.strip()
         })
 
         result = self._run_model(
             model=model,
             payload={
                 "messages": messages,
-                "temperature": temperature
+                "temperature": float(temperature)
             }
         )
 
-        response = result.get("response")
-
-        if isinstance(response, str) and response.strip():
-            return response.strip()
-
-        raise ValueError(
-            "Cloudflare returned an empty or invalid AI response."
+        return self._extract_text(
+            result,
+            "Cloudflare conversational model"
         )
 
     def check_safety(self, messages):
-        """Run Llama Guard 3 8B on conversation messages."""
+        """
+        Run Cloudflare Llama Guard 3 8B.
+
+        Returns raw classification text for validation
+        by the LlamaGuard safety module.
+        """
 
         if not isinstance(messages, list) or not messages:
             raise ValueError(
-                "Safety screening requires conversation messages."
+                "Safety screening requires a non-empty message list."
             )
+
+        for message in messages:
+            if not isinstance(message, dict):
+                raise ValueError(
+                    "Each safety message must be a dictionary."
+                )
+
+            if message.get("role") not in (
+                "system", "user", "assistant"
+            ):
+                raise ValueError(
+                    "Invalid role in safety message."
+                )
+
+            if (
+                not isinstance(message.get("content"), str)
+                or not message["content"].strip()
+            ):
+                raise ValueError(
+                    "Safety message content must be non-empty text."
+                )
 
         result = self._run_model(
             model=self.GUARD_MODEL,
             payload={
-                "messages": messages
+                "messages": messages,
+                "temperature": 0.0
             }
         )
 
-        response = result.get("response")
+        return self._extract_text(
+            result,
+            "Cloudflare Llama Guard"
+        )
 
-        if not isinstance(response, str) or not response.strip():
-            raise ValueError(
-                "Llama Guard returned an empty classification."
+    def check_connection(self):
+        """Check conversational model availability."""
+
+        try:
+            response = self.generate(
+                prompt="Reply with exactly the word READY.",
+                model=self.CHAT_MODEL,
+                temperature=0.0
             )
+            return bool(response)
 
-        return response.strip()
+        except Exception:
+            return False
+
+    def check_safety_connection(self):
+        """Check safety model availability."""
+
+        try:
+            response = self.check_safety([
+                {
+                    "role": "user",
+                    "content": "Hello."
+                }
+            ])
+            return bool(response)
+
+        except Exception:
+            return False
 
     def list_models(self):
-        """Return the configured Cloudflare model identifiers."""
+        """Return configured Cloudflare model identifiers."""
 
         return [
             self.CHAT_MODEL,
             self.GUARD_MODEL
-          ]
+        ]
