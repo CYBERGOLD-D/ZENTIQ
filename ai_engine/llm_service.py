@@ -1,17 +1,17 @@
 """
 ZENTIQ - Hybrid LLM Service
 
-Production:
-    Primary conversational provider: Cloudflare Gemma 4
-    Fallback conversational provider: Groq Cloud
-    Safety provider: Cloudflare Llama Guard 3 8B
+PRODUCTION:
+    Primary AI: Cloudflare Gemma 4
+    Fallback AI: Groq Cloud
+    Safety: Cloudflare Llama Guard 3 8B
 
-Local development:
-    Primary conversational provider: Ollama Llama 3.2:1B
-    Fallback conversational provider: Groq Cloud
-    Safety provider: Local Ollama Llama Guard 3:1B
+LOCAL DEVELOPMENT:
+    Primary AI: Ollama Llama 3.2:1B
+    Fallback AI: Groq Cloud
+    Safety: Local Llama Guard 3:1B
 
-All incoming messages and generated responses
+All incoming requests and generated responses
 are screened before processing or release.
 
 Developed by EverMark Creative Solutions.
@@ -23,6 +23,7 @@ from safety.llama_guard import LlamaGuard
 
 
 class LLMService:
+    """Coordinates AI generation and safety screening."""
 
     def __init__(
         self,
@@ -33,7 +34,7 @@ class LLMService:
         cloudflare_client=None,
         safety_guard=None
     ):
-        # Preserve compatibility with the previous client argument.
+        # Backward compatibility with the previous client argument.
         if client is not None and ollama_client is None:
             ollama_client = client
 
@@ -54,21 +55,15 @@ class LLMService:
 
         self.prompt_templates = PromptTemplates()
 
-        safety_provider = getattr(
-            self.model_manager,
-            "safety_provider",
-            None
-        )
-
         self.safety_guard = safety_guard or LlamaGuard(
             ollama_client=self.ollama_client,
             guard_model=self.model_manager.guard_model,
             cloudflare_client=self.cloudflare_client,
-            provider=safety_provider
+            provider=self.model_manager.safety_provider
         )
 
     def get_system_prompt(self, template_name="general"):
-        """Retrieve the appropriate ZENTIQ assistant instructions."""
+        """Load the requested ZENTIQ system prompt."""
 
         templates = {
             "general": self.prompt_templates.general_business_assistant,
@@ -92,7 +87,7 @@ class LLMService:
         system_prompt,
         temperature
     ):
-        """Generate a response using the specified provider."""
+        """Generate a response using the selected provider."""
 
         if provider == "cloudflare":
             if self.cloudflare_client is None:
@@ -138,7 +133,7 @@ class LLMService:
         stage,
         user_message=None
     ):
-        """Screen content using the configured Llama Guard."""
+        """Screen incoming requests or outgoing responses."""
 
         if stage == "input":
             result = self.safety_guard.check_input(content)
@@ -156,13 +151,10 @@ class LLMService:
 
         if not isinstance(result, dict):
             raise RuntimeError(
-                "Llama Guard returned an invalid safety result."
+                "The safety system returned an invalid result."
             )
 
-        if result.get("safe") is not True:
-            return False
-
-        return True
+        return result.get("safe") is True
 
     def generate_response(
         self,
@@ -172,20 +164,19 @@ class LLMService:
         temperature=0.3,
         template_name="general"
     ):
-        """
-        Screen user input, generate using the preferred provider,
-        attempt fallback if needed, and screen the final response.
-        """
+        """Generate a response with safety checks and fallback."""
 
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Prompt cannot be empty.")
 
         if system_prompt is None:
-            system_prompt = self.get_system_prompt(template_name)
+            system_prompt = self.get_system_prompt(
+                template_name
+            )
 
-        # -----------------------------------------------
-        # STAGE 1: SCREEN USER INPUT
-        # -----------------------------------------------
+        # --------------------------------------------------
+        # 1. SCREEN THE INCOMING USER MESSAGE
+        # --------------------------------------------------
 
         try:
             input_safe = self._check_safety(
@@ -205,17 +196,16 @@ class LLMService:
                 "because it did not pass ZENTIQ's safety checks."
             )
 
-        # -----------------------------------------------
-        # STAGE 2: GET PROVIDER PRIORITY
-        # -----------------------------------------------
+        # --------------------------------------------------
+        # 2. GET THE PROVIDER PRIORITY ORDER
+        # --------------------------------------------------
 
         try:
             providers = self.model_manager.get_provider_order()
 
         except Exception as error:
             raise ConnectionError(
-                "ZENTIQ could not determine the available "
-                "AI provider order."
+                "ZENTIQ could not determine the AI provider order."
             ) from error
 
         if not providers:
@@ -223,16 +213,15 @@ class LLMService:
                 "No conversational AI provider is configured."
             )
 
-        # -----------------------------------------------
-        # STAGE 3: GENERATE WITH PRIMARY / FALLBACK
-        # -----------------------------------------------
+        # --------------------------------------------------
+        # 3. GENERATE WITH AUTOMATIC PROVIDER FALLBACK
+        # --------------------------------------------------
 
         response = None
         active_provider = None
         provider_errors = []
 
         for provider in providers:
-
             try:
                 model = self.model_manager.select_model(
                     task=task,
@@ -272,9 +261,9 @@ class LLMService:
                 f"Details: {error_summary}"
             )
 
-        # -----------------------------------------------
-        # STAGE 4: SCREEN GENERATED RESPONSE
-        # -----------------------------------------------
+        # --------------------------------------------------
+        # 4. SCREEN THE GENERATED AI RESPONSE
+        # --------------------------------------------------
 
         try:
             output_safe = self._check_safety(
@@ -295,11 +284,10 @@ class LLMService:
                 "the safety checks. The response has been withheld."
             )
 
-        # -----------------------------------------------
-        # STAGE 5: RECORD ACTIVE PROVIDER
-        # -----------------------------------------------
+        # --------------------------------------------------
+        # 5. RECORD THE PROVIDER THAT SUCCEEDED
+        # --------------------------------------------------
 
         self.model_manager.active_provider = active_provider
 
         return response
-                    
