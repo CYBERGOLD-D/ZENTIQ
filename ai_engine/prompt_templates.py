@@ -1,4 +1,3 @@
-
 """
 ZENTIQ - Prompt Templates
 
