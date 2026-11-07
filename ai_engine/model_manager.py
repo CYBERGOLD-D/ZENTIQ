@@ -1,11 +1,11 @@
 """
 ZENTIQ - Hybrid Model Manager
 
-Production:
+PRODUCTION:
     Primary: Cloudflare Workers AI (Gemma 4)
     Fallback: Groq Cloud
 
-Local development:
+LOCAL DEVELOPMENT:
     Primary: Ollama (Llama 3.2:1B)
     Fallback: Groq Cloud
 
@@ -14,12 +14,13 @@ Developed by EverMark Creative Solutions.
 
 import streamlit as st
 
+from ai_engine.cloudflare_client import CloudflareClient
 from ai_engine.groq_client import GroqClient
 from ai_engine.ollama_client import OllamaClient
-from ai_engine.cloudflare_client import CloudflareClient
 
 
 class ModelManager:
+    """Manages ZENTIQ's conversational AI providers."""
 
     def __init__(
         self,
@@ -80,15 +81,17 @@ class ModelManager:
             )
 
             return bool(
-                account_id and str(account_id).strip()
-                and api_token and str(api_token).strip()
+                account_id
+                and str(account_id).strip()
+                and api_token
+                and str(api_token).strip()
             )
 
         except Exception:
             return False
 
     def get_provider_order(self):
-        """Return providers in the correct priority order."""
+        """Return providers in priority order."""
 
         if self.cloudflare_enabled:
             return ["cloudflare", "groq"]
@@ -96,12 +99,7 @@ class ModelManager:
         return ["ollama", "groq"]
 
     def select_provider(self):
-        """
-        Return the preferred provider.
-
-        Actual availability is determined during generation.
-        This avoids unnecessary test-generation API calls.
-        """
+        """Return the preferred conversational provider."""
 
         providers = self.get_provider_order()
 
@@ -113,7 +111,7 @@ class ModelManager:
         return providers[0]
 
     def select_model(self, task="general", provider=None):
-        """Select a model for the requested provider."""
+        """Select the model associated with a provider."""
 
         provider = provider or self.select_provider()
 
@@ -134,7 +132,7 @@ class ModelManager:
         )
 
     def get_available_models(self, provider=None):
-        """Return models available from a provider."""
+        """List models available through a provider."""
 
         provider = provider or self.select_provider()
 
