@@ -8,7 +8,8 @@ Local development:
     Ollama Llama Guard 3 1B
 
 Screens incoming user messages and outgoing AI responses.
-Fails closed whenever safety screening is unavailable.
+Fails closed whenever safety screening is unavailable
+or returns an invalid classification.
 
 Developed by EverMark Creative Solutions.
 """
@@ -22,7 +23,7 @@ from ai_engine.cloudflare_client import CloudflareClient
 class LlamaGuard:
     """Hybrid safety classifier for ZENTIQ conversations."""
 
-    SAFETY_CATEGORIES = """
+    BASE_CATEGORIES = """
 S1: Violent Crimes.
 S2: Non-Violent Crimes.
 S3: Sex Crimes.
@@ -36,13 +37,11 @@ S10: Hate.
 S11: Self-Harm.
 S12: Sexual Content.
 S13: Elections.
-S14: Code Interpreter Abuse.
 """
 
-    # Accept safety categories S1 through S14.
-    VALID_CATEGORIES = {
-        f"S{i}" for i in range(1, 15)
-    }
+    S14_CATEGORY = """
+S14: Code Interpreter Abuse.
+"""
 
     def __init__(
         self,
@@ -51,27 +50,31 @@ S14: Code Interpreter Abuse.
         cloudflare_client=None,
         provider=None
     ):
+        self.provider = provider or self._get_provider()
+
+        self.guard_model = guard_model
+
         self.ollama_client = (
             ollama_client or OllamaClient()
         )
 
         self.cloudflare_client = cloudflare_client
-        self.guard_model = guard_model
-        self.provider = provider or self._get_provider()
 
         if self.provider == "cloudflare":
+
             self.cloudflare_client = (
                 self.cloudflare_client or CloudflareClient()
             )
 
         elif self.provider != "ollama":
+
             raise ValueError(
                 f"Unsupported safety provider: {self.provider}"
             )
 
     @staticmethod
     def _get_provider():
-        """Determine the safety provider from the environment."""
+        """Select Cloudflare when production credentials exist."""
 
         try:
             account_id = st.secrets.get(
@@ -95,13 +98,44 @@ S14: Code Interpreter Abuse.
 
         return "ollama"
 
+    @property
+    def valid_categories(self):
+        """Return categories supported by the active guard model."""
+
+        if self.provider == "cloudflare":
+            return {
+                f"S{i}" for i in range(1, 15)
+            }
+
+        # Llama Guard 3 1B is not optimized for S14.
+        return {
+            f"S{i}" for i in range(1, 14)
+        }
+
+    def _get_categories_prompt(self):
+        """Return the category definitions for the active model."""
+
+        categories = self.BASE_CATEGORIES
+
+        if self.provider == "cloudflare":
+            categories += self.S14_CATEGORY
+
+        return categories
+
     def check_connection(self):
-        """Check whether the configured safety provider is available."""
+        """
+        Verify that the configured safety provider is available.
+
+        Cloudflare is tested by running an actual safety
+        classification and validating its response.
+
+        Ollama is tested by checking connectivity and
+        confirming that the required guard model exists.
+        """
 
         try:
+
             if self.provider == "cloudflare":
-                if self.cloudflare_client is None:
-                    return False
 
                 result = self.cloudflare_client.check_safety([
                     {
@@ -110,12 +144,15 @@ S14: Code Interpreter Abuse.
                     }
                 ])
 
-                return (
-                    isinstance(result, str)
-                    and bool(result.strip())
+                parsed = self._parse_result(result)
+
+                return parsed.get("label") in (
+                    "safe",
+                    "unsafe"
                 )
 
             if self.provider == "ollama":
+
                 if not self.ollama_client.check_connection():
                     return False
 
@@ -147,6 +184,7 @@ S14: Code Interpreter Abuse.
         ]
 
         if assistant_response is not None:
+
             messages.append({
                 "role": "assistant",
                 "content": assistant_response
@@ -170,16 +208,17 @@ S14: Code Interpreter Abuse.
         conversation = f"User: {user_message}"
 
         if assistant_response is not None:
+
             conversation += (
                 f"\n\nAgent: {assistant_response}"
             )
 
         return f"""
 Task: Check if there is unsafe content in '{role}' messages
-in conversations according to our safety policy.
+in conversations according to the safety policy below.
 
 <BEGIN UNSAFE CONTENT CATEGORIES>
-{self.SAFETY_CATEGORIES}
+{self._get_categories_prompt()}
 <END UNSAFE CONTENT CATEGORIES>
 
 <BEGIN CONVERSATION>
@@ -197,9 +236,15 @@ message in the above conversation.
 """
 
     def _parse_result(self, result):
-        """Validate and parse a Llama Guard classification."""
+        """
+        Strictly validate a Llama Guard classification.
+
+        Unknown, empty or malformed responses raise an error.
+        They are never interpreted as safe.
+        """
 
         if not isinstance(result, str) or not result.strip():
+
             raise ValueError(
                 "Llama Guard returned an empty result."
             )
@@ -213,6 +258,12 @@ message in the above conversation.
         first_line = lines[0].lower()
 
         if first_line == "safe":
+
+            if len(lines) != 1:
+                raise ValueError(
+                    "Safe classification contains unexpected extra data."
+                )
+
             return {
                 "safe": True,
                 "label": "safe",
@@ -234,14 +285,16 @@ message in the above conversation.
                 if category.strip()
             }
 
-            if (
-                not categories
-                or not categories.issubset(
-                    self.VALID_CATEGORIES
-                )
-            ):
+            if not categories:
                 raise ValueError(
-                    "Llama Guard returned invalid safety categories."
+                    "Unsafe classification contains no valid categories."
+                )
+
+            if not categories.issubset(self.valid_categories):
+
+                raise ValueError(
+                    "Llama Guard returned unsupported safety categories: "
+                    f"{categories}"
                 )
 
             return {
@@ -260,12 +313,13 @@ message in the above conversation.
         user_message,
         assistant_response=None
     ):
-        """Classify user input or an AI response."""
+        """Classify user input or an AI-generated response."""
 
         if (
             not isinstance(user_message, str)
             or not user_message.strip()
         ):
+
             return {
                 "safe": False,
                 "label": "error",
@@ -273,10 +327,12 @@ message in the above conversation.
             }
 
         if assistant_response is not None:
+
             if (
                 not isinstance(assistant_response, str)
                 or not assistant_response.strip()
             ):
+
                 return {
                     "safe": False,
                     "label": "error",
@@ -284,6 +340,13 @@ message in the above conversation.
                 }
 
         try:
+
+            if not self.check_connection():
+
+                raise ConnectionError(
+                    f"{self.provider} safety provider is unavailable."
+                )
+
             if self.provider == "cloudflare":
 
                 messages = self._build_messages(
@@ -296,11 +359,6 @@ message in the above conversation.
                 )
 
             else:
-
-                if not self.check_connection():
-                    raise ConnectionError(
-                        "Local Llama Guard is unavailable."
-                    )
 
                 guard_prompt = self._build_prompt(
                     user_message=user_message,
@@ -316,10 +374,13 @@ message in the above conversation.
             return self._parse_result(result)
 
         except Exception as error:
+
             return {
                 "safe": False,
                 "label": "error",
-                "reason": f"Safety screening failed: {error}"
+                "reason": (
+                    f"Safety screening failed: {error}"
+                )
             }
 
     def check_input(self, user_message):
@@ -337,6 +398,7 @@ message in the above conversation.
         """Screen an AI response using its original question."""
 
         if not user_message:
+
             user_message = (
                 "Original user message was not supplied."
             )
@@ -345,4 +407,3 @@ message in the above conversation.
             user_message=user_message,
             assistant_response=assistant_response
         )
-        
