@@ -1,4 +1,3 @@
-
 """
 ZENTIQ - Hybrid Llama Guard Safety Module
 
@@ -37,10 +36,12 @@ S10: Hate.
 S11: Self-Harm.
 S12: Sexual Content.
 S13: Elections.
+S14: Code Interpreter Abuse.
 """
 
+    # Accept safety categories S1 through S14.
     VALID_CATEGORIES = {
-        f"S{i}" for i in range(1, 14)
+        f"S{i}" for i in range(1, 15)
     }
 
     def __init__(
@@ -63,10 +64,7 @@ S13: Elections.
                 self.cloudflare_client or CloudflareClient()
             )
 
-        elif self.provider == "ollama":
-            pass
-
-        else:
+        elif self.provider != "ollama":
             raise ValueError(
                 f"Unsupported safety provider: {self.provider}"
             )
@@ -76,10 +74,22 @@ S13: Elections.
         """Determine the safety provider from the environment."""
 
         try:
-            if st.secrets.get("CLOUDFLARE_ACCOUNT_ID") and (
-                st.secrets.get("CLOUDFLARE_API_TOKEN")
+            account_id = st.secrets.get(
+                "CLOUDFLARE_ACCOUNT_ID"
+            )
+
+            api_token = st.secrets.get(
+                "CLOUDFLARE_API_TOKEN"
+            )
+
+            if (
+                account_id
+                and str(account_id).strip()
+                and api_token
+                and str(api_token).strip()
             ):
                 return "cloudflare"
+
         except Exception:
             pass
 
@@ -93,8 +103,6 @@ S13: Elections.
                 if self.cloudflare_client is None:
                     return False
 
-                # Verify credentials and API access using
-                # an actual safety-model request.
                 result = self.cloudflare_client.check_safety([
                     {
                         "role": "user",
@@ -102,7 +110,10 @@ S13: Elections.
                     }
                 ])
 
-                return isinstance(result, str) and bool(result.strip())
+                return (
+                    isinstance(result, str)
+                    and bool(result.strip())
+                )
 
             if self.provider == "ollama":
                 if not self.ollama_client.check_connection():
@@ -126,7 +137,7 @@ S13: Elections.
         user_message,
         assistant_response=None
     ):
-        """Build conversation messages for Llama Guard."""
+        """Build conversation messages for Cloudflare Llama Guard."""
 
         messages = [
             {
@@ -148,7 +159,7 @@ S13: Elections.
         user_message,
         assistant_response=None
     ):
-        """Build a local Ollama Llama Guard prompt."""
+        """Build a local Ollama Llama Guard classification prompt."""
 
         role = (
             "User"
@@ -334,3 +345,4 @@ message in the above conversation.
             user_message=user_message,
             assistant_response=assistant_response
         )
+        
