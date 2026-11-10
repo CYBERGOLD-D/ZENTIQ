@@ -7,7 +7,7 @@ Production:
 
 Features:
     - Secure Cloudflare authentication through Streamlit Secrets
-    - Gemma 4 text generation
+    - Gemma 4 text generation with multiple response formats
     - Llama Guard text and structured JSON response support
     - Strict safety-result validation
     - Safe error handling and connection diagnostics
@@ -54,7 +54,7 @@ class CloudflareClient:
         })
 
     # --------------------------------------------------
-    # 1. CLOUDFARE API REQUEST
+    # 1. CLOUDFLARE API REQUEST
     # --------------------------------------------------
 
     def _run_model(self, model, payload):
@@ -91,7 +91,6 @@ class CloudflareClient:
             if data.get("success") is not True:
 
                 errors = data.get("errors", [])
-
                 safe_errors = []
 
                 if isinstance(errors, list):
@@ -159,36 +158,136 @@ class CloudflareClient:
             ) from error
 
     # --------------------------------------------------
-    # 2. TEXT RESPONSE EXTRACTION
+    # 2. TEXT CONTENT NORMALIZATION
     # --------------------------------------------------
 
     @staticmethod
-    def _extract_text(result):
-        """Extract a normal text-generation response."""
+    def _normalize_text_content(content):
+        """
+        Convert supported text content into a plain string.
+
+        Supports:
+            - Normal string content
+            - Lists containing text blocks
+        """
+
+        if isinstance(content, str):
+            return content.strip()
+
+        if isinstance(content, list):
+
+            text_parts = []
+
+            for item in content:
+
+                if isinstance(item, str):
+                    if item.strip():
+                        text_parts.append(item.strip())
+
+                elif isinstance(item, dict):
+
+                    text_value = item.get("text")
+
+                    if (
+                        isinstance(text_value, str)
+                        and text_value.strip()
+                    ):
+                        text_parts.append(text_value.strip())
+
+            return "\n".join(text_parts).strip()
+
+        return None
+
+    # --------------------------------------------------
+    # 3. GEMMA 4 RESPONSE EXTRACTION
+    # --------------------------------------------------
+
+    @classmethod
+    def _extract_text(cls, result):
+        """
+        Extract generated text from Cloudflare responses.
+
+        Supported formats:
+
+        Format A:
+            {
+                "response": "Generated answer"
+            }
+
+        Format B:
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "Generated answer"
+                        }
+                    }
+                ]
+            }
+
+        Format C:
+            {
+                "output_text": "Generated answer"
+            }
+        """
 
         if not isinstance(result, dict):
             raise ValueError(
                 "Cloudflare returned an invalid result."
             )
 
+        # Format A: Native Workers AI response.
         response = result.get("response")
 
-        if not isinstance(response, str):
-            raise ValueError(
-                "Cloudflare returned a non-text AI response."
-            )
+        if isinstance(response, str):
 
-        response = response.strip()
+            text = response.strip()
 
-        if not response:
-            raise ValueError(
-                "Cloudflare returned an empty AI response."
-            )
+            if text:
+                return text
 
-        return response
+        # Format B: OpenAI-compatible chat completion.
+        choices = result.get("choices")
+
+        if isinstance(choices, list) and choices:
+
+            for choice in choices:
+
+                if not isinstance(choice, dict):
+                    continue
+
+                message = choice.get("message")
+
+                if not isinstance(message, dict):
+                    continue
+
+                content = cls._normalize_text_content(
+                    message.get("content")
+                )
+
+                if content:
+                    return content
+
+        # Format C: Direct output_text response.
+        output_text = result.get("output_text")
+
+        if isinstance(output_text, str):
+
+            output_text = output_text.strip()
+
+            if output_text:
+                return output_text
+
+        # Do not mistake reasoning, tool calls or metadata
+        # for a completed user-facing answer.
+        raise ValueError(
+            "Cloudflare returned no supported text content. "
+            f"Available response fields: {', '.join(result.keys())}"
+        )
 
     # --------------------------------------------------
-    # 3. GEMMA 4 TEXT GENERATION
+    # 4. GEMMA 4 TEXT GENERATION
     # --------------------------------------------------
 
     def generate(
@@ -226,7 +325,10 @@ class CloudflareClient:
 
         payload = {
             "messages": messages,
-            "temperature": float(temperature)
+            "temperature": float(temperature),
+            "chat_template_kwargs": {
+                "enable_thinking": False
+            }
         }
 
         result = self._run_model(
@@ -237,7 +339,7 @@ class CloudflareClient:
         return self._extract_text(result)
 
     # --------------------------------------------------
-    # 4. LLAMA GUARD RESPONSE NORMALIZATION
+    # 5. LLAMA GUARD RESPONSE NORMALIZATION
     # --------------------------------------------------
 
     @staticmethod
@@ -264,8 +366,6 @@ class CloudflareClient:
                 "safe": false,
                 "categories": ["S1", "S2"]
             }
-
-        Returns the text format expected by LlamaGuard.
         """
 
         if not isinstance(result, dict):
@@ -275,7 +375,7 @@ class CloudflareClient:
 
         response = result.get("response")
 
-        # Format A: Cloudflare returns classification text.
+        # Format A: Classification text.
         if isinstance(response, str):
 
             response = response.strip()
@@ -287,7 +387,7 @@ class CloudflareClient:
 
             return response
 
-        # Format B: Cloudflare returns structured JSON.
+        # Format B: Structured JSON classification.
         if isinstance(response, dict):
 
             safe = response.get("safe")
@@ -301,7 +401,6 @@ class CloudflareClient:
             categories = response.get("categories", [])
 
             if not isinstance(categories, list):
-
                 raise ValueError(
                     "Safety categories must be returned as a list."
                 )
@@ -311,7 +410,6 @@ class CloudflareClient:
                 and category.strip()
                 for category in categories
             ):
-
                 raise ValueError(
                     "Safety response contains invalid categories."
                 )
@@ -346,14 +444,13 @@ class CloudflareClient:
         )
 
     # --------------------------------------------------
-    # 5. LLAMA GUARD SAFETY CLASSIFICATION
+    # 6. LLAMA GUARD SAFETY CLASSIFICATION
     # --------------------------------------------------
 
     def check_safety(self, messages):
         """Classify a conversation using Cloudflare Llama Guard 3."""
 
         if not isinstance(messages, list) or not messages:
-
             raise ValueError(
                 "Valid conversation messages are required."
             )
@@ -361,7 +458,6 @@ class CloudflareClient:
         for message in messages:
 
             if not isinstance(message, dict):
-
                 raise ValueError(
                     "Invalid conversation message structure."
                 )
@@ -370,7 +466,6 @@ class CloudflareClient:
                 "user",
                 "assistant"
             ):
-
                 raise ValueError(
                     "Unsupported conversation message role."
                 )
@@ -379,7 +474,6 @@ class CloudflareClient:
                 not isinstance(message.get("content"), str)
                 or not message["content"].strip()
             ):
-
                 raise ValueError(
                     "Conversation messages must contain valid text."
                 )
@@ -397,7 +491,7 @@ class CloudflareClient:
         return self._normalize_safety_response(result)
 
     # --------------------------------------------------
-    # 6. CONNECTION TESTS
+    # 7. CONNECTION TESTS
     # --------------------------------------------------
 
     def check_connection(self):
@@ -414,7 +508,10 @@ class CloudflareClient:
                             "content": "Reply with the word OK."
                         }
                     ],
-                    "temperature": 0.0
+                    "temperature": 0.0,
+                    "chat_template_kwargs": {
+                        "enable_thinking": False
+                    }
                 }
             )
 
@@ -443,7 +540,7 @@ class CloudflareClient:
             return False
 
     # --------------------------------------------------
-    # 7. AVAILABLE MODELS
+    # 8. AVAILABLE MODELS
     # --------------------------------------------------
 
     def list_models(self):
@@ -452,4 +549,4 @@ class CloudflareClient:
         return [
             self.CHAT_MODEL,
             self.GUARD_MODEL
-        ]
+                ]
