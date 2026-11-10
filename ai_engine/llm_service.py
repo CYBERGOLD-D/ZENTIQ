@@ -11,8 +11,12 @@ LOCAL DEVELOPMENT:
     Fallback AI: Groq Cloud
     Safety: Local Llama Guard 3:1B
 
-All incoming requests and generated responses
-are screened before processing or release.
+Features:
+    - Automatic provider fallback
+    - Cloudflare diagnostic logging
+    - Centralized input/output safety screening
+    - Active provider tracking
+    - Fail-closed safety handling
 
 Developed by EverMark Creative Solutions.
 """
@@ -61,6 +65,9 @@ class LLMService:
             cloudflare_client=self.cloudflare_client,
             provider=self.model_manager.safety_provider
         )
+
+        # Track the most recently successful provider.
+        self.last_provider = None
 
     # --------------------------------------------------
     # 1. SYSTEM PROMPTS
@@ -203,7 +210,26 @@ class LLMService:
         )
 
     # --------------------------------------------------
-    # 6. MAIN AI RESPONSE GENERATION
+    # 6. PROVIDER DIAGNOSTICS
+    # --------------------------------------------------
+
+    @staticmethod
+    def _log_provider_failure(provider, error):
+        """
+        Log provider failures without exposing credentials
+        or user prompts.
+        """
+
+        message = (
+            f"[ZENTIQ DIAGNOSTIC] "
+            f"{provider} generation failed: "
+            f"{type(error).__name__}: {str(error)[:300]}"
+        )
+
+        print(message, flush=True)
+
+    # --------------------------------------------------
+    # 7. MAIN AI RESPONSE GENERATION
     # --------------------------------------------------
 
     def generate_response(
@@ -218,6 +244,7 @@ class LLMService:
 
         # Reset provider status for every new request.
         self.model_manager.active_provider = None
+        self.last_provider = None
 
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Prompt cannot be empty.")
@@ -235,6 +262,13 @@ class LLMService:
             input_safe = self.check_input_safety(prompt)
 
         except Exception as error:
+            print(
+                "[ZENTIQ SAFETY DIAGNOSTIC] "
+                "Input screening failed: "
+                f"{type(error).__name__}",
+                flush=True
+            )
+
             raise RuntimeError(
                 "ZENTIQ could not complete input safety screening. "
                 "The request was not processed."
@@ -272,6 +306,7 @@ class LLMService:
         provider_errors = []
 
         for provider in providers:
+
             try:
                 model = self.model_manager.select_model(
                     task=task,
@@ -300,12 +335,20 @@ class LLMService:
                 break
 
             except Exception as error:
-                # Avoid exposing raw provider exception details.
+
+                # Record diagnostic information without
+                # logging prompts or authentication details.
+                self._log_provider_failure(
+                    provider,
+                    error
+                )
+
                 provider_errors.append(
                     f"{provider}: {type(error).__name__}"
                 )
 
         if response is None:
+
             error_summary = " | ".join(provider_errors)
 
             raise ConnectionError(
@@ -324,6 +367,14 @@ class LLMService:
             )
 
         except Exception as error:
+
+            print(
+                "[ZENTIQ SAFETY DIAGNOSTIC] "
+                "Output screening failed: "
+                f"{type(error).__name__}",
+                flush=True
+            )
+
             raise RuntimeError(
                 "ZENTIQ could not complete response safety screening. "
                 "The generated response was not released."
@@ -332,6 +383,24 @@ class LLMService:
         if not output_safe:
             return (
                 "ZENTIQ generated a response that did not pass "
+                "the safety checks. The response has been withheld."
+            )
+
+        # --------------------------------------------------
+        # STEP 5: RECORD THE SUCCESSFUL PROVIDER
+        # --------------------------------------------------
+
+        self.model_manager.active_provider = active_provider
+        self.last_provider = active_provider
+
+        print(
+            "[ZENTIQ PROVIDER STATUS] "
+            f"Successful provider: {active_provider}",
+            flush=True
+        )
+
+        return response
+generated a response that did not pass "
                 "the safety checks. The response has been withheld."
             )
 
