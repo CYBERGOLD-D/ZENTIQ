@@ -400,14 +400,3 @@ class LLMService:
         )
 
         return response
-generated a response that did not pass "
-                "the safety checks. The response has been withheld."
-            )
-
-        # --------------------------------------------------
-        # STEP 5: RECORD THE SUCCESSFUL PROVIDER
-        # --------------------------------------------------
-
-        self.model_manager.active_provider = active_provider
-
-        return response
