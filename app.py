@@ -1,4 +1,34 @@
-""" ZENTIQ - Intelligent Business Assistant Hybrid AI Streamlit Application PRODUCTION AI: Primary: Cloudflare Workers AI - Gemma 4 Fallback: Groq Cloud LOCAL DEVELOPMENT AI: Primary: Ollama - Llama 3.2:1B Fallback: Groq Cloud SAFETY: Production: Cloudflare Llama Guard 3 8B Local development: Ollama Llama Guard 3:1B MODES: 1. Machine Learning Retail Support 2. Hybrid AI Assistant FEATURES: - Supabase email authentication - User-specific persistent conversations - Conversation recovery and retry saving - Incoming and outgoing safety screening in both modes - PDF conversation export Developed by EverMark Creative Solutions. """
+"""
+ZENTIQ - Intelligent Business Assistant
+Redesigned Hybrid AI Streamlit Application
+
+PRODUCTION AI:
+    Primary: Cloudflare Workers AI - Gemma 4
+    Fallback: Groq Cloud
+
+LOCAL DEVELOPMENT AI:
+    Primary: Ollama - Llama 3.2:1B
+    Fallback: Groq Cloud
+
+SAFETY:
+    Production: Cloudflare Llama Guard 3 8B
+    Local: Ollama Llama Guard 3:1B
+
+FEATURES:
+    - Supabase email authentication
+    - User-specific persistent conversations
+    - Conversation recovery and retry saving
+    - Input and output safety screening
+    - Direct response display
+    - Response regeneration
+    - Answer feedback
+    - Copy-friendly response view
+    - Individual answer download
+    - PDF conversation export
+    - Responsive ZENTIQ interface
+
+Developed by EverMark Creative Solutions.
+"""
 
 import sys
 import json
@@ -18,7 +48,7 @@ from xml.sax.saxutils import escape
 
 st.set_page_config(
     page_title="ZENTIQ - Intelligent Business Assistant",
-    page_icon="ðŸ¤–",
+    page_icon="🤖",
     layout="centered"
 )
 
@@ -35,7 +65,215 @@ if str(PROJECT_DIR) not in sys.path:
 
 
 # ==================================================
-# 3. DATABASE AND AUTHENTICATION IMPORTS
+# 3. ZENTIQ VISUAL IDENTITY
+# ==================================================
+
+PRIMARY_BLUE = "#087BFF"
+DEEP_NAVY = "#0B1F4A"
+VIOLET = "#742BFF"
+SOFT_BLUE = "#EAF2FF"
+MUTED_TEXT = "#52658F"
+
+
+def apply_zentiq_design():
+    """Apply the ZENTIQ visual identity to the application."""
+
+    st.markdown(
+        """
+        <style>
+        :root {
+            --z-primary: #087BFF;
+            --z-navy: #0B1F4A;
+            --z-violet: #742BFF;
+            --z-soft: #EAF2FF;
+            --z-muted: #52658F;
+        }
+
+        .stApp {
+            background:
+                radial-gradient(
+                    circle at 5% 0%,
+                    rgba(8,123,255,0.13),
+                    transparent 34%
+                ),
+                radial-gradient(
+                    circle at 100% 100%,
+                    rgba(116,43,255,0.10),
+                    transparent 32%
+                ),
+                #F6F9FF;
+            color: var(--z-navy);
+        }
+
+        [data-testid="stHeader"] {
+            background: transparent;
+        }
+
+        [data-testid="stSidebar"] {
+            background: linear-gradient(
+                180deg,
+                #EAF2FF 0%,
+                #F7F9FF 100%
+            );
+            border-right: 1px solid #DCE7FA;
+        }
+
+        h1, h2, h3 {
+            color: var(--z-navy);
+            letter-spacing: -0.5px;
+        }
+
+        .zentiq-brand {
+            text-align: center;
+            padding: 10px 0 4px 0;
+        }
+
+        .zentiq-brand-mark {
+            font-size: 54px;
+            line-height: 1.1;
+            font-weight: 900;
+            letter-spacing: -3px;
+            color: var(--z-navy);
+        }
+
+        .zentiq-brand-mark span {
+            background: linear-gradient(
+                110deg,
+                #087BFF,
+                #742BFF
+            );
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .zentiq-tagline {
+            color: var(--z-primary);
+            font-size: 17px;
+            font-weight: 600;
+            text-align: center;
+            margin-top: 2px;
+        }
+
+        .zentiq-subtitle {
+            color: var(--z-muted);
+            text-align: center;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .zentiq-card {
+            background: rgba(255,255,255,0.94);
+            border: 1px solid #DCE6F8;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 12px 35px rgba(11,31,74,0.07);
+            margin: 12px 0;
+        }
+
+        .zentiq-footer {
+            text-align: center;
+            color: var(--z-muted);
+            font-size: 13px;
+            padding: 18px 0 8px 0;
+        }
+
+        .zentiq-footer strong {
+            color: var(--z-primary);
+        }
+
+        .stButton > button {
+            border-radius: 12px;
+            border: 1px solid #D5E2F7;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .stButton > button[kind="primary"],
+        .stFormSubmitButton > button {
+            background: linear-gradient(
+                105deg,
+                #087BFF,
+                #742BFF
+            );
+            color: white;
+            border: none;
+        }
+
+        .stButton > button:hover {
+            border-color: var(--z-primary);
+            color: var(--z-primary);
+        }
+
+        .stButton > button[kind="primary"]:hover,
+        .stFormSubmitButton > button:hover {
+            color: white;
+            filter: brightness(1.05);
+        }
+
+        [data-testid="stChatMessage"] {
+            background: rgba(255,255,255,0.92);
+            border: 1px solid #E0E9F8;
+            border-radius: 16px;
+            padding: 14px;
+            margin-bottom: 12px;
+            box-shadow: 0 5px 18px rgba(11,31,74,0.035);
+        }
+
+        [data-testid="stChatInput"] {
+            border-radius: 16px;
+        }
+
+        [data-testid="stChatInput"] textarea {
+            border-radius: 14px;
+        }
+
+        [data-testid="stMetric"] {
+            background: white;
+            border: 1px solid #E0E9F8;
+            border-radius: 14px;
+            padding: 12px;
+        }
+
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 20px;
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            color: var(--z-muted);
+            font-weight: 600;
+        }
+
+        .stTabs [aria-selected="true"] {
+            color: var(--z-primary) !important;
+        }
+
+        div[data-testid="stExpander"] {
+            border: 1px solid #DCE6F8;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.8);
+        }
+
+        @media (max-width: 640px) {
+            .zentiq-brand-mark {
+                font-size: 43px;
+            }
+
+            .zentiq-card {
+                padding: 14px;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+apply_zentiq_design()
+
+
+# ==================================================
+# 4. DATABASE AND AUTHENTICATION IMPORTS
 # ==================================================
 
 from database.auth import (
@@ -60,7 +298,7 @@ from database.repositories import (
 
 
 # ==================================================
-# 4. LOAD MACHINE LEARNING COMPONENTS
+# 5. LOAD MACHINE LEARNING COMPONENTS
 # ==================================================
 
 @st.cache_resource
@@ -102,7 +340,7 @@ try:
 
 except Exception as error:
     st.error(
-        "Unable to load Machine Learning components. "
+        "Unable to load the Machine Learning components. "
         "Check that all three model files exist and are valid."
     )
     st.exception(error)
@@ -110,7 +348,7 @@ except Exception as error:
 
 
 # ==================================================
-# 5. MACHINE LEARNING PREDICTION
+# 6. MACHINE LEARNING PREDICTION
 # ==================================================
 
 def predict_customer_query(question):
@@ -138,11 +376,11 @@ def predict_customer_query(question):
 
 
 # ==================================================
-# 6. LOAD HYBRID AI SERVICE
+# 7. LOAD HYBRID AI SERVICE
 # ==================================================
 
 def load_llm_service():
-    """ Create an LLM service for the current request. This is intentionally not globally cached because the service records the active provider after generation. A globally shared, mutable provider field could cause concurrent sessions to display another request's provider. """
+    """Create a fresh service for the current request."""
 
     from ai_engine.llm_service import LLMService
 
@@ -150,20 +388,42 @@ def load_llm_service():
 
 
 # ==================================================
-# 7. AUTHENTICATION INTERFACE
+# 8. AUTHENTICATION INTERFACE
 # ==================================================
 
 def show_authentication_page(client):
-    """Display the sign-in and account-registration interface."""
+    """Display the redesigned ZENTIQ sign-in interface."""
 
-    st.title("ðŸ¤– ZENTIQ")
-    st.subheader(
-        "Welcome to your Intelligent Business Assistant"
+    st.markdown(
+        """
+        <div class="zentiq-brand">
+            <div class="zentiq-brand-mark">
+                <span>Z</span>ENTIQ
+            </div>
+            <div class="zentiq-tagline">
+                Smarter Business. Together.
+            </div>
+            <div class="zentiq-subtitle">
+                Welcome to your Intelligent Business Assistant
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
-    st.write(
-        "Sign in to access your business assistant "
-        "and securely manage your conversation history."
+    st.markdown(
+        """
+        <div class="zentiq-card">
+            <h3 style="text-align:center;color:#0B1F4A;">
+                Your business intelligence starts here
+            </h3>
+            <p style="text-align:center;color:#52658F;">
+                Sign in to access your assistant and securely
+                manage your conversation history.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     login_tab, register_tab = st.tabs(
@@ -183,7 +443,8 @@ def show_authentication_page(client):
 
             password = st.text_input(
                 "Password",
-                type="password"
+                type="password",
+                placeholder="Enter your password"
             )
 
             login_button = st.form_submit_button(
@@ -196,6 +457,7 @@ def show_authentication_page(client):
                 st.error(
                     "Please enter your email address and password."
                 )
+
             else:
                 try:
                     user, session = login_user(
@@ -218,12 +480,13 @@ def show_authentication_page(client):
 
                     else:
                         save_authenticated_session(session)
+
                         st.session_state[USER_ID_KEY] = user.id
                         st.session_state[USER_EMAIL_KEY] = (
                             user.email or email.strip()
                         )
 
-                        st.success("Login successful.")
+                        st.success("Welcome back to ZENTIQ.")
                         st.rerun()
 
                 except Exception:
@@ -246,12 +509,14 @@ def show_authentication_page(client):
             new_password = st.text_input(
                 "Password",
                 type="password",
+                placeholder="Create a password",
                 help="Use at least 8 characters."
             )
 
             confirm_password = st.text_input(
                 "Confirm password",
-                type="password"
+                type="password",
+                placeholder="Confirm your password"
             )
 
             register_button = st.form_submit_button(
@@ -288,12 +553,13 @@ def show_authentication_page(client):
 
                     elif user is not None:
                         save_authenticated_session(session)
+
                         st.session_state[USER_ID_KEY] = user.id
                         st.session_state[USER_EMAIL_KEY] = (
                             user.email or new_email.strip()
                         )
 
-                        st.success("Your account is ready.")
+                        st.success("Your ZENTIQ account is ready.")
                         st.rerun()
 
                     else:
@@ -307,9 +573,19 @@ def show_authentication_page(client):
                         "Please check your details and try again."
                     )
 
+    st.markdown(
+        """
+        <div class="zentiq-footer">
+            <strong>Intelligence that empowers business.</strong><br>
+            Developed by EverMark Creative Solutions.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 # ==================================================
-# 8. RESTORE AUTHENTICATED USER SESSION
+# 9. RESTORE AUTHENTICATED USER SESSION
 # ==================================================
 
 try:
@@ -349,7 +625,7 @@ user_email = (
 
 
 # ==================================================
-# 9. INITIALISE SESSION STATE
+# 10. INITIALISE SESSION STATE
 # ==================================================
 
 SESSION_DEFAULTS = {
@@ -369,11 +645,16 @@ for key, default_value in SESSION_DEFAULTS.items():
 
 
 # ==================================================
-# 10. CONVERSATION PERSISTENCE
+# 11. CONVERSATION PERSISTENCE
 # ==================================================
 
-def persist_conversation( client, authenticated_user_id, mode, messages ):
-    """ Create or update a conversation in Supabase. The active conversation ID prevents duplicate records. The database repository must enforce user_id ownership through Supabase Row Level Security. """
+def persist_conversation(
+    client,
+    authenticated_user_id,
+    mode,
+    messages
+):
+    """Create or update a user-owned Supabase conversation."""
 
     if not messages:
         return None
@@ -394,6 +675,7 @@ def persist_conversation( client, authenticated_user_id, mode, messages ):
     )
 
     title = str(first_user_message).strip()[:80]
+
     if not title:
         title = "ZENTIQ Conversation"
 
@@ -428,11 +710,12 @@ def persist_conversation( client, authenticated_user_id, mode, messages ):
         active_conversations[mode] = result["id"]
 
     st.session_state["zentiq_unsaved_modes"].discard(mode)
+
     return result
 
 
 # ==================================================
-# 11. PDF EXPORT
+# 12. PDF CONVERSATION EXPORT
 # ==================================================
 
 def build_conversation_pdf(messages, mode):
@@ -466,6 +749,7 @@ def build_conversation_pdf(messages, mode):
     )
 
     styles = getSampleStyleSheet()
+
     font_name = "Helvetica"
     bold_font = "Helvetica-Bold"
 
@@ -482,6 +766,7 @@ def build_conversation_pdf(messages, mode):
                 pdfmetrics.registerFont(
                     TTFont("ZENTIQVera", str(regular_font))
                 )
+
                 pdfmetrics.registerFont(
                     TTFont("ZENTIQVera-Bold", str(bold_font_path))
                 )
@@ -496,8 +781,8 @@ def build_conversation_pdf(messages, mode):
         "ZENTIQTitle",
         parent=styles["Title"],
         fontName=bold_font,
-        fontSize=19,
-        textColor=colors.HexColor("#17365D"),
+        fontSize=20,
+        textColor=colors.HexColor("#0B1F4A"),
         spaceAfter=12
     )
 
@@ -506,6 +791,7 @@ def build_conversation_pdf(messages, mode):
         parent=styles["Heading2"],
         fontName=bold_font,
         fontSize=11,
+        textColor=colors.HexColor("#087BFF"),
         spaceBefore=10,
         spaceAfter=5
     )
@@ -546,16 +832,16 @@ def build_conversation_pdf(messages, mode):
         ).title()
 
         content = str(message.get("content", ""))
+
         safe_content = escape(content).replace(
             "\n",
             "<br/>"
         )
 
-        # Do not wrap an entire potentially long message in KeepTogether.
-        # ReportLab can then split long paragraphs across PDF pages.
         story.append(
             Paragraph(escape(role), heading_style)
         )
+
         story.append(
             Paragraph(safe_content, body_style)
         )
@@ -598,46 +884,150 @@ def build_conversation_pdf(messages, mode):
                 )
             )
 
+        if message.get("feedback"):
+            story.append(
+                Paragraph(
+                    "User feedback: "
+                    + escape(str(message["feedback"])),
+                    body_style
+                )
+            )
+
         story.append(Spacer(1, 6))
 
     document.build(story)
+
     buffer.seek(0)
+
     return buffer.getvalue()
 
 
 # ==================================================
-# 12. APPLICATION HEADER
+# 13. RESPONSE GENERATION
 # ==================================================
 
-st.title("ðŸ¤– ZENTIQ")
-st.subheader("Smarter Business. Better Decisions.")
+def generate_answer(question, assistant_mode, template_name):
+    """
+    Generate one answer.
 
-st.write(
-    "Welcome to ZENTIQ, your intelligent business assistant. "
-    "Get business support, explore ideas, and find practical "
-    "solutions to everyday business challenges."
+    Both modes pass through the appropriate input and output
+    safety screening before an answer is released.
+    """
+
+    if assistant_mode == "Machine Learning Retail Support":
+
+        llm = load_llm_service()
+
+        input_safe = llm.check_input_safety(question)
+
+        if not input_safe:
+            return {
+                "role": "assistant",
+                "content": (
+                    "I'm sorry, but I cannot process this request "
+                    "because it did not pass ZENTIQ's safety checks."
+                ),
+                "engine": "Safety screening"
+            }
+
+        intent, response, confidence = predict_customer_query(
+            question
+        )
+
+        output_safe = llm.check_output_safety(
+            response,
+            user_message=question
+        )
+
+        if not output_safe:
+            return {
+                "role": "assistant",
+                "content": (
+                    "ZENTIQ generated a response that did not pass "
+                    "the safety checks. The response has been withheld."
+                ),
+                "engine": "Safety screening"
+            }
+
+        return {
+            "role": "assistant",
+            "content": response,
+            "engine": "TF-IDF + Logistic Regression",
+            "intent": intent,
+            "confidence": confidence
+        }
+
+    llm = load_llm_service()
+
+    llm.model_manager.active_provider = None
+
+    response = llm.generate_response(
+        prompt=question,
+        task="general",
+        template_name=template_name,
+        temperature=0.3
+    )
+
+    provider = (
+        llm.model_manager.active_provider
+        or getattr(llm, "last_provider", None)
+        or "Not reported"
+    )
+
+    return {
+        "role": "assistant",
+        "content": response,
+        "provider": str(provider)
+    }
+
+
+# ==================================================
+# 14. APPLICATION HEADER
+# ==================================================
+
+st.markdown(
+    """
+    <div class="zentiq-brand">
+        <div class="zentiq-brand-mark">
+            <span>Z</span>ENTIQ
+        </div>
+        <div class="zentiq-tagline">
+            Smarter Business. Together.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    """
+    <div class="zentiq-subtitle">
+        Intelligence that empowers business.
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
 st.caption(f"Signed in as: {user_email}")
+
 st.divider()
 
 
 # ==================================================
-# 13. SIDEBAR AND ASSISTANT SELECTION
+# 15. SIDEBAR AND ASSISTANT SELECTION
 # ==================================================
 
 with st.sidebar:
-    st.title("ZENTIQ Assistant")
 
-    # ----------------------------------------------
-    # SIGN OUT
-    # ----------------------------------------------
+    st.markdown("## ZENTIQ Assistant")
 
     if st.button(
         "Sign Out",
         use_container_width=True
     ):
-        success, message = logout_authenticated_user(supabase)
+        success, message = logout_authenticated_user(
+            supabase
+        )
 
         for key in (
             "zentiq_active_conversations",
@@ -649,14 +1039,14 @@ with st.sidebar:
         ):
             st.session_state.pop(key, None)
 
-        st.success(message) if success else st.warning(message)
+        if success:
+            st.success(message)
+        else:
+            st.warning(message)
+
         st.rerun()
 
     st.divider()
-
-    # ----------------------------------------------
-    # ASSISTANT MODE
-    # ----------------------------------------------
 
     assistant_mode = st.radio(
         "Choose your assistant:",
@@ -669,10 +1059,11 @@ with st.sidebar:
     st.divider()
 
     if assistant_mode == "ZENTIQ AI Assistant":
+
         st.subheader("Hybrid AI Business Assistance")
 
         st.write(
-            "Production: Cloudflare Gemma 4 is the primary AI "
+            "Production: Cloudflare Gemma 4 is the primary "
             "provider, with Groq Cloud as fallback. "
             "Local development: Ollama is the primary provider."
         )
@@ -690,9 +1081,11 @@ with st.sidebar:
         )
 
         template_name = prompt_options[selected_prompt]
+
         history_key = "zentiq_ai_messages"
 
     else:
+
         st.subheader("Retail Support")
 
         st.write(
@@ -700,15 +1093,36 @@ with st.sidebar:
             "with safety screening."
         )
 
-        st.markdown(""" **Available Support Areas** - Business Expenses - Customer Acquisition - Daily Sales - Damaged Products - Delivery Costs and Delays - Inventory Reordering - Order Tracking - Payment Confirmation - Payment Methods - POS Issues - Profit Calculation - Record Keeping - Refund Requests - Selling Prices - Social Media Marketing - Stock Availability - Supplier Onboarding - Supplier Price Changes """)
+        st.markdown(
+            """
+            **Available Support Areas**
+
+            - Business Expenses
+            - Customer Acquisition
+            - Daily Sales
+            - Damaged Products
+            - Delivery Costs and Delays
+            - Inventory Reordering
+            - Order Tracking
+            - Payment Confirmation
+            - Payment Methods
+            - POS Issues
+            - Profit Calculation
+            - Record Keeping
+            - Refund Requests
+            - Selling Prices
+            - Social Media Marketing
+            - Stock Availability
+            - Supplier Onboarding
+            - Supplier Price Changes
+            """
+        )
+
+        template_name = "general"
 
         history_key = "ml_retail_messages"
 
     st.divider()
-
-    # ----------------------------------------------
-    # ACTIVE CONVERSATION
-    # ----------------------------------------------
 
     active_conversations = st.session_state[
         "zentiq_active_conversations"
@@ -719,10 +1133,12 @@ with st.sidebar:
     # ----------------------------------------------
 
     if st.button(
-        "New Conversation",
+        "＋ New Conversation",
         use_container_width=True
     ):
+
         active_conversations[assistant_mode] = None
+
         st.session_state[history_key] = []
 
         st.session_state["zentiq_unsaved_modes"].discard(
@@ -738,6 +1154,7 @@ with st.sidebar:
     st.subheader("Recent Conversations")
 
     try:
+
         saved_conversations = get_conversations(
             supabase,
             user_id
@@ -749,8 +1166,13 @@ with st.sidebar:
             if conversation.get("mode") == assistant_mode
         ]
 
+        if not mode_conversations:
+            st.caption("No saved conversations yet.")
+
         for conversation in mode_conversations[:10]:
+
             conversation_id = conversation.get("id")
+
             conversation_title = conversation.get(
                 "title",
                 "ZENTIQ Conversation"
@@ -758,9 +1180,13 @@ with st.sidebar:
 
             if st.button(
                 conversation_title[:45],
-                key=f"conversation_{assistant_mode}_{conversation_id}",
+                key=(
+                    f"conversation_{assistant_mode}_"
+                    f"{conversation_id}"
+                ),
                 use_container_width=True
             ):
+
                 selected_conversation = get_conversation(
                     supabase,
                     user_id,
@@ -768,13 +1194,16 @@ with st.sidebar:
                 )
 
                 if selected_conversation:
+
                     active_conversations[assistant_mode] = (
                         conversation_id
                     )
 
-                    restored_messages = selected_conversation.get(
-                        "messages",
-                        []
+                    restored_messages = (
+                        selected_conversation.get(
+                            "messages",
+                            []
+                        )
                     )
 
                     st.session_state[history_key] = (
@@ -783,9 +1212,9 @@ with st.sidebar:
                         else []
                     )
 
-                    st.session_state["zentiq_unsaved_modes"].discard(
-                        assistant_mode
-                    )
+                    st.session_state[
+                        "zentiq_unsaved_modes"
+                    ].discard(assistant_mode)
 
                     st.rerun()
 
@@ -801,12 +1230,17 @@ with st.sidebar:
     # RETRY UNSAVED CONVERSATIONS
     # ----------------------------------------------
 
-    if assistant_mode in st.session_state["zentiq_unsaved_modes"]:
+    if assistant_mode in st.session_state[
+        "zentiq_unsaved_modes"
+    ]:
+
         if st.button(
             "Retry Saving Conversation",
             use_container_width=True
         ):
+
             try:
+
                 persist_conversation(
                     supabase,
                     user_id,
@@ -831,12 +1265,15 @@ with st.sidebar:
         "Clear Current Chat",
         use_container_width=True
     ):
+
         try:
+
             conversation_id = active_conversations.get(
                 assistant_mode
             )
 
             if conversation_id:
+
                 update_conversation(
                     client=supabase,
                     user_id=user_id,
@@ -847,9 +1284,9 @@ with st.sidebar:
 
             st.session_state[history_key] = []
 
-            st.session_state["zentiq_unsaved_modes"].discard(
-                assistant_mode
-            )
+            st.session_state[
+                "zentiq_unsaved_modes"
+            ].discard(assistant_mode)
 
             st.success("Current conversation cleared.")
             st.rerun()
@@ -859,16 +1296,18 @@ with st.sidebar:
 
 
 # ==================================================
-# 14. DISPLAY CONVERSATION HISTORY
+# 16. DISPLAY CONVERSATION HISTORY
 # ==================================================
 
 messages = st.session_state[history_key]
 
-for message in messages:
+for index, message in enumerate(messages):
+
     role = message.get("role", "assistant")
     content = message.get("content", "")
 
     with st.chat_message(role):
+
         st.markdown(content)
 
         if message.get("provider"):
@@ -888,12 +1327,253 @@ for message in messages:
 
         if message.get("confidence") is not None:
             st.caption(
-                f"Confidence: {float(message['confidence']):.2f}%"
+                f"Confidence: "
+                f"{float(message['confidence']):.2f}%"
             )
+
+        # ------------------------------------------
+        # ANSWER ACTIONS
+        # ------------------------------------------
+
+        if role == "assistant" and content:
+
+            with st.expander(
+                "Copy or share this answer",
+                expanded=False
+            ):
+
+                st.caption(
+                    "Use the copy icon on the text block, "
+                    "or download the answer as a text file."
+                )
+
+                st.code(
+                    content,
+                    language=None
+                )
+
+                st.download_button(
+                    "Download This Answer",
+                    data=content.encode("utf-8"),
+                    file_name="ZENTIQ_Answer.txt",
+                    mime="text/plain",
+                    key=f"answer_download_{index}",
+                    use_container_width=True
+                )
+
+            # --------------------------------------
+            # FEEDBACK
+            # --------------------------------------
+
+            feedback_col1, feedback_col2 = st.columns(2)
+
+            with feedback_col1:
+
+                if st.button(
+                    "👍 Helpful",
+                    key=f"feedback_up_{index}",
+                    use_container_width=True
+                ):
+
+                    message["feedback"] = "Helpful"
+
+                    try:
+                        persist_conversation(
+                            supabase,
+                            user_id,
+                            assistant_mode,
+                            messages
+                        )
+
+                        st.toast("Thank you for your feedback.")
+
+                    except Exception:
+                        st.session_state[
+                            "zentiq_unsaved_modes"
+                        ].add(assistant_mode)
+
+                        st.warning(
+                            "Feedback recorded locally but "
+                            "could not be saved yet."
+                        )
+
+                    st.rerun()
+
+            with feedback_col2:
+
+                if st.button(
+                    "👎 Not Helpful",
+                    key=f"feedback_down_{index}",
+                    use_container_width=True
+                ):
+
+                    message["feedback"] = "Not Helpful"
+
+                    try:
+                        persist_conversation(
+                            supabase,
+                            user_id,
+                            assistant_mode,
+                            messages
+                        )
+
+                        st.toast("Thank you. We value your feedback.")
+
+                    except Exception:
+                        st.session_state[
+                            "zentiq_unsaved_modes"
+                        ].add(assistant_mode)
+
+                        st.warning(
+                            "Feedback recorded locally but "
+                            "could not be saved yet."
+                        )
+
+                    st.rerun()
+
+            if message.get("feedback"):
+                st.caption(
+                    f"Your feedback: {message['feedback']}"
+                )
+
+            with st.expander(
+                "Add written feedback",
+                expanded=False
+            ):
+
+                feedback_text = st.text_area(
+                    "Tell us how this answer could improve:",
+                    key=f"feedback_text_{index}",
+                    height=90
+                )
+
+                if st.button(
+                    "Submit Feedback",
+                    key=f"feedback_submit_{index}"
+                ):
+
+                    if feedback_text.strip():
+
+                        message["feedback_comment"] = (
+                            feedback_text.strip()
+                        )
+
+                        try:
+
+                            persist_conversation(
+                                supabase,
+                                user_id,
+                                assistant_mode,
+                                messages
+                            )
+
+                            st.success(
+                                "Thank you. Your feedback has been saved."
+                            )
+
+                        except Exception:
+
+                            st.session_state[
+                                "zentiq_unsaved_modes"
+                            ].add(assistant_mode)
+
+                            st.warning(
+                                "Feedback could not be saved yet."
+                            )
+
+                        st.rerun()
+
+                    else:
+                        st.warning(
+                            "Please enter your feedback first."
+                        )
 
 
 # ==================================================
-# 15. CHAT INPUT AND RESPONSE GENERATION
+# 17. REGENERATE LAST RESPONSE
+# ==================================================
+
+if messages:
+
+    last_assistant_index = None
+
+    for index in range(len(messages) - 1, -1, -1):
+
+        if messages[index].get("role") == "assistant":
+            last_assistant_index = index
+            break
+
+    if last_assistant_index is not None:
+
+        last_assistant = messages[last_assistant_index]
+
+        last_user_message = None
+
+        for index in range(
+            last_assistant_index - 1,
+            -1,
+            -1
+        ):
+
+            if messages[index].get("role") == "user":
+                last_user_message = messages[index]
+                break
+
+        if last_user_message:
+
+            if st.button(
+                "↻ Regenerate Last Response",
+                use_container_width=True,
+                type="secondary"
+            ):
+
+                try:
+
+                    with st.spinner(
+                        "ZENTIQ is generating another answer..."
+                    ):
+
+                        regenerated = generate_answer(
+                            last_user_message.get("content", ""),
+                            assistant_mode,
+                            template_name
+                        )
+
+                    messages[last_assistant_index] = regenerated
+
+                    try:
+
+                        persist_conversation(
+                            supabase,
+                            user_id,
+                            assistant_mode,
+                            messages
+                        )
+
+                    except Exception:
+
+                        st.session_state[
+                            "zentiq_unsaved_modes"
+                        ].add(assistant_mode)
+
+                        st.warning(
+                            "The new response was generated, "
+                            "but saving failed. Retry saving "
+                            "from the sidebar."
+                        )
+
+                    st.rerun()
+
+                except Exception:
+
+                    st.error(
+                        "ZENTIQ could not regenerate the answer. "
+                        "Please try again."
+                    )
+
+
+# ==================================================
+# 18. CHAT INPUT AND RESPONSE GENERATION
 # ==================================================
 
 user_question = st.chat_input(
@@ -901,6 +1581,7 @@ user_question = st.chat_input(
 )
 
 if user_question:
+
     user_message = {
         "role": "user",
         "content": user_question
@@ -912,121 +1593,55 @@ if user_question:
         st.markdown(user_question)
 
     try:
+
         with st.chat_message("assistant"):
-            with st.spinner("ZENTIQ is preparing your response..."):
 
-                # ------------------------------------------
-                # MODE 1: MACHINE LEARNING RETAIL SUPPORT
-                # ------------------------------------------
+            with st.spinner(
+                "ZENTIQ is preparing your response..."
+            ):
 
-                if assistant_mode == "Machine Learning Retail Support":
-                    llm = load_llm_service()
+                assistant_message = generate_answer(
+                    user_question,
+                    assistant_mode,
+                    template_name
+                )
 
-                    # Screen the incoming customer message.
-                    input_safe = llm.check_input_safety(
-                        user_question
-                    )
+            st.markdown(
+                assistant_message["content"]
+            )
 
-                    if not input_safe:
-                        response = (
-                            "I'm sorry, but I cannot process this "
-                            "request because it did not pass "
-                            "ZENTIQ's safety checks."
-                        )
+            if assistant_message.get("provider"):
+                st.caption(
+                    "AI Provider: "
+                    + assistant_message["provider"]
+                )
 
-                        assistant_message = {
-                            "role": "assistant",
-                            "content": response,
-                            "engine": "Safety screening"
-                        }
+            if assistant_message.get("engine"):
+                st.caption(
+                    "Response Engine: "
+                    + assistant_message["engine"]
+                )
 
-                        st.markdown(response)
+            if assistant_message.get("intent"):
+                st.caption(
+                    "Predicted Intent: "
+                    + assistant_message["intent"]
+                )
 
-                    else:
-                        # Generate the ML retail-support response.
-                        intent, response, confidence = (
-                            predict_customer_query(user_question)
-                        )
+            if assistant_message.get("confidence") is not None:
+                st.caption(
+                    "Confidence: "
+                    f"{assistant_message['confidence']:.2f}%"
+                )
 
-                        # Screen the generated ML response.
-                        output_safe = llm.check_output_safety(
-                            response,
-                            user_message=user_question
-                        )
-
-                        if not output_safe:
-                            response = (
-                                "ZENTIQ generated a response that "
-                                "did not pass the safety checks. "
-                                "The response has been withheld."
-                            )
-
-                            assistant_message = {
-                                "role": "assistant",
-                                "content": response,
-                                "engine": "Safety screening"
-                            }
-
-                            st.markdown(response)
-
-                        else:
-                            assistant_message = {
-                                "role": "assistant",
-                                "content": response,
-                                "engine": "TF-IDF + Logistic Regression",
-                                "intent": intent,
-                                "confidence": confidence
-                            }
-
-                            st.markdown(response)
-                            st.caption(
-                                f"Predicted Intent: {intent}"
-                            )
-                            st.caption(
-                                f"Confidence: {confidence:.2f}%"
-                            )
-
-                # ------------------------------------------
-                # MODE 2: HYBRID AI ASSISTANT
-                # ------------------------------------------
-
-                else:
-                    llm = load_llm_service()
-
-                    # Prevent a previous request's provider from
-                    # being shown if this request is refused early.
-                    llm.model_manager.active_provider = None
-
-                    response = llm.generate_response(
-                        prompt=user_question,
-                        task="general",
-                        template_name=template_name,
-                        temperature=0.3
-                    )
-
-                    provider = (
-                        llm.model_manager.active_provider
-                        or "Not used / response withheld"
-                    )
-
-                    assistant_message = {
-                        "role": "assistant",
-                        "content": response,
-                        "provider": str(provider)
-                    }
-
-                    st.markdown(response)
-
-                    st.caption(
-                        f"AI Provider: {provider}"
-                    )
-
-        # Append only after a response has been generated and
-        # any required safety screening has completed.
         messages.append(assistant_message)
 
-        # Save the complete conversation.
+        # ------------------------------------------
+        # SAVE THE COMPLETE CONVERSATION
+        # ------------------------------------------
+
         try:
+
             persist_conversation(
                 supabase,
                 user_id,
@@ -1035,9 +1650,10 @@ if user_question:
             )
 
         except Exception:
-            st.session_state["zentiq_unsaved_modes"].add(
-                assistant_mode
-            )
+
+            st.session_state[
+                "zentiq_unsaved_modes"
+            ].add(assistant_mode)
 
             st.warning(
                 "Your response was generated, but the conversation "
@@ -1048,29 +1664,35 @@ if user_question:
         st.rerun()
 
     except Exception:
+
         st.error(
             "ZENTIQ could not complete your request. "
             "The response was not released if safety screening "
-            "could not be completed. Please try again. If the "
-            "problem continues, check the AI provider and safety "
-            "service configuration."
+            "could not be completed. Please try again. "
+            "If the problem continues, check the AI provider "
+            "and safety service configuration."
         )
 
-        # Remove the unanswered user message from the current
-        # in-memory conversation. It can be submitted again.
         if messages and messages[-1] == user_message:
             messages.pop()
 
 
 # ==================================================
-# 16. PDF CONVERSATION EXPORT
+# 19. PDF CONVERSATION EXPORT
 # ==================================================
 
 if messages:
+
     st.divider()
-    st.subheader("Export Your Conversation")
+
+    st.subheader("Your Conversation")
+
+    st.write(
+        "Download a copy of your conversation whenever you need it."
+    )
 
     try:
+
         pdf_data = build_conversation_pdf(
             messages,
             assistant_mode
@@ -1089,25 +1711,26 @@ if messages:
         )
 
     except Exception:
+
         st.error(
             "Unable to generate the PDF. Please try again."
         )
 
 
 # ==================================================
-# 17. APPLICATION FOOTER
+# 20. APPLICATION FOOTER
 # ==================================================
 
 st.divider()
 
-st.caption(
-    "ZENTIQ â€” Intelligent Business Assistant"
-)
-
-st.caption(
-    "Developed by EverMark Creative Solutions."
-)
-
-st.caption(
-    "Intelligence that empowers business."
+st.markdown(
+    """
+    <div class="zentiq-footer">
+        <strong>Smarter Business. Together.</strong><br><br>
+        ZENTIQ — Intelligent Business Assistant<br>
+        Developed by EverMark Creative Solutions.<br>
+        Intelligence that empowers business.
+    </div>
+    """,
+    unsafe_allow_html=True
 )
