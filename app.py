@@ -26,6 +26,7 @@ FEATURES:
     - Individual answer download
     - PDF conversation export
     - Responsive ZENTIQ interface
+    - Official EverMark developer branding and attribution
 
 Developed by EverMark Creative Solutions.
 """
@@ -59,6 +60,15 @@ st.set_page_config(
 
 PROJECT_DIR = Path(__file__).resolve().parent
 MODEL_DIR = PROJECT_DIR / "models"
+ASSETS_DIR = PROJECT_DIR / "assets"
+
+# Save the original EverMark logo in this location:
+# assets/evermark_creative_solutions.png
+EVERMARK_LOGO_PATH = ASSETS_DIR / "evermark_creative_solutions.png"
+
+COPYRIGHT_TEXT = (
+    "© 2026 EverMark Creative Solutions. All rights reserved."
+)
 
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
@@ -182,6 +192,14 @@ def apply_zentiq_design():
             color: var(--z-primary);
         }
 
+        .evermark-logo-wrap {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            margin: 8px auto;
+        }
+
         .stButton > button {
             border-radius: 12px;
             border: 1px solid #D5E2F7;
@@ -264,6 +282,49 @@ def apply_zentiq_design():
             }
         }
         </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def show_evermark_brand(width=230, show_developed_by=True):
+    """
+    Display the official EverMark Creative Solutions logo
+    and copyright attribution.
+
+    Expected logo:
+        assets/evermark_creative_solutions.png
+    """
+
+    if show_developed_by:
+        st.markdown(
+            '<div class="zentiq-footer">Developed by</div>',
+            unsafe_allow_html=True
+        )
+
+    if EVERMARK_LOGO_PATH.is_file():
+        left, center, right = st.columns([1, 3, 1])
+
+        with center:
+            st.image(
+                str(EVERMARK_LOGO_PATH),
+                width=width
+            )
+    else:
+        st.markdown(
+            """
+            <div class="zentiq-footer">
+                <strong>EverMark Creative Solutions</strong>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.markdown(
+        f"""
+        <div class="zentiq-footer">
+            {escape(COPYRIGHT_TEXT)}
+        </div>
         """,
         unsafe_allow_html=True
     )
@@ -573,15 +634,8 @@ def show_authentication_page(client):
                         "Please check your details and try again."
                     )
 
-    st.markdown(
-        """
-        <div class="zentiq-footer">
-            <strong>Intelligence that empowers business.</strong><br>
-            Developed by EverMark Creative Solutions.
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    st.divider()
+    show_evermark_brand(width=220)
 
 
 # ==================================================
@@ -731,7 +785,8 @@ def build_conversation_pdf(messages, mode):
     from reportlab.platypus import (
         SimpleDocTemplate,
         Paragraph,
-        Spacer
+        Spacer,
+        Image as ReportLabImage
     )
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
@@ -806,7 +861,24 @@ def build_conversation_pdf(messages, mode):
         wordWrap="CJK"
     )
 
-    story = [
+    story = []
+
+    # Official EverMark logo in exported PDF, when available.
+    if EVERMARK_LOGO_PATH.is_file():
+        try:
+            logo = ReportLabImage(
+                str(EVERMARK_LOGO_PATH),
+                width=2.6 * inch,
+                height=1.35 * inch,
+                kind="proportional"
+            )
+            logo.hAlign = "CENTER"
+            story.append(logo)
+            story.append(Spacer(1, 8))
+        except Exception:
+            pass
+
+    story.extend([
         Paragraph("ZENTIQ", title_style),
         Paragraph(
             "Intelligent Business Assistant",
@@ -824,7 +896,7 @@ def build_conversation_pdf(messages, mode):
             body_style
         ),
         Spacer(1, 15)
-    ]
+    ])
 
     for message in messages:
         role = str(
@@ -893,7 +965,33 @@ def build_conversation_pdf(messages, mode):
                 )
             )
 
+        if message.get("feedback_comment"):
+            story.append(
+                Paragraph(
+                    "Written feedback: "
+                    + escape(str(message["feedback_comment"])),
+                    body_style
+                )
+            )
+
         story.append(Spacer(1, 6))
+
+    # Developer attribution and copyright in every exported PDF.
+    story.append(Spacer(1, 20))
+
+    story.append(
+        Paragraph(
+            "Developed by EverMark Creative Solutions.",
+            body_style
+        )
+    )
+
+    story.append(
+        Paragraph(
+            escape(COPYRIGHT_TEXT),
+            body_style
+        )
+    )
 
     document.build(story)
 
@@ -1728,9 +1826,10 @@ st.markdown(
     <div class="zentiq-footer">
         <strong>Smarter Business. Together.</strong><br><br>
         ZENTIQ — Intelligent Business Assistant<br>
-        Developed by EverMark Creative Solutions.<br>
         Intelligence that empowers business.
     </div>
     """,
     unsafe_allow_html=True
 )
+
+show_evermark_brand(width=240)
